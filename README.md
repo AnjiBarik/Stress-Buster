@@ -28,7 +28,7 @@ Journey through space and dodge those pesky black holes!
 
 It's ridiculously easy:   
 
-    Open any game file (like mischievous_cloud.html) directly in your favorite web browser.
+    Open any game file (index.html) directly in your favorite web browser.
 
     Play and de-stress!
 

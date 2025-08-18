@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Simple, fun games to help you relax and combat stress.">
+    <meta name="keywords" content="stress relief games, anti-stress, simple games, relax, stress buster, combat stress, games">
+    <title>Stress Buster</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="img/favicon-16x16.png">
+</head>
+<body>
+
+    <header class="header">
+        <div class="logo-container">
+            <img src="img/logo.png" alt="Stress Buster Logo" class="logo">
+        </div>
+        <h1 class="title">Stress Buster</h1>
+        <h3 class="title-description">Play Simple Games to Relax</h3>
+    </header>
+
+    <main class="main-content">
+        <canvas id="background-canvas" class="background-canvas"></canvas>
+
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>👻...</p>
+        </div>
+
+        <div class="games-container">
+            <a href="game1/index.html" class="game-card" data-description="Mischievous Cloud: Help the cloud get through challenges and not cry.">
+                <div class="card-inner">
+                    <img class="card-background" src="img/game1_main.png" alt="Mischievous Cloud background image">
+                    <img class="card-main-image" src="img/game1_bg.png" alt="Mischievous Cloud main character">
+                </div>
+            </a>
+            <a href="game2/index.html" class="game-card" data-description="Helpful Bacillus: Grow the bacillus and avoid COVID-19.">
+                <div class="card-inner">
+                    <img class="card-background" src="img/game2_main.png" alt="Helpful Bacillus background image">
+                    <img class="card-main-image" src="img/game2_bg.png" alt="Helpful Bacillus main character">
+                </div>
+            </a>
+            <a href="game3/index.html" class="game-card" data-description="Soap Bubble: Row into the biggest bubble in the world.">
+                <div class="card-inner">
+                    <img class="card-background" src="img/game3_bg.png" alt="Soap Bubble background image">
+                    <img class="card-main-image" src="img/game3_main.png" alt="Soap Bubble main character">
+                </div>
+            </a>
+            <a href="game4/index.html" class="game-card" data-description="Cosmic Traveler: Journey through space and dodge black holes.">
+                <div class="card-inner">
+                    <img class="card-background" src="img/game4_bg.png" alt="Cosmic Traveler background image">
+                    <img class="card-main-image" src="img/game4_main.png" alt="Cosmic Traveler main character">
+                </div>
+            </a>
+        </div>
+
+        <div class="side-panel">
+            <button id="share-button" class="share-button">
+                <img src="img/share-icon.png" alt="Share">
+            </button>
+            <div class="qr-container">
+                <img id="qr-code" src="img/qr-code.png" alt="QR Code to share the site" class="qr-code">
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p id="game-description">Hover over a game to learn more.</p>
+    </footer>
+
+    <script>
+        // Canvas background animation
+        const canvas = document.getElementById('background-canvas');
+        const ctx = canvas.getContext('2d');
+        let balls = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        class Ball {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.radius = Math.random() * 50 + 20;
+                this.color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+                this.vx = (Math.random() - 0.5) * 1;
+                this.vy = (Math.random() - 0.5) * 1;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.x - this.radius > canvas.width || this.x + this.radius < 0) {
+                    this.x = this.x < 0 ? canvas.width + this.radius : -this.radius;
+                }
+                if (this.y - this.radius > canvas.height || this.y + this.radius < 0) {
+                    this.y = this.y < 0 ? canvas.height + this.radius : -this.radius;
+                }
+            }
+        }
+
+        for (let i = 0; i < 30; i++) {
+            balls.push(new Ball());
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            balls.forEach(ball => {
+                ball.draw();
+                ball.update();
+            });
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Game card functionality
+        const loadingSpinner = document.querySelector('.loading-spinner');
+        const gameDescription = document.getElementById('game-description');
+        const gamesContainer = document.querySelector('.games-container');
+
+        // Hide the loading spinner after a brief delay
+        function hideLoadingSpinner() {
+            loadingSpinner.style.opacity = '0';
+            setTimeout(() => { loadingSpinner.style.display = 'none'; }, 500);
+        }
+        hideLoadingSpinner();
+        
+        // Add hover events to game cards
+        function addCardHoverEvents() {
+            const gameCards = document.querySelectorAll('.game-card');
+            gameCards.forEach(card => {
+                card.addEventListener('mouseenter', () => {
+                    gameDescription.textContent = card.dataset.description;
+                });
+                card.addEventListener('mouseleave', () => {
+                    gameDescription.textContent = 'Hover over a game to learn more.';
+                });
+            });
+        }
+        addCardHoverEvents();
+
+        // "Share" Button with Web Share API
+        const shareButton = document.getElementById('share-button');
+        if (navigator.share) {
+            shareButton.style.display = 'block'; // Ensure button is visible if API is supported
+            shareButton.addEventListener('click', async () => {
+                try {
+                    await navigator.share({
+                        title: 'Stress Buster',
+                        url: window.location.href
+                    });
+                } catch (error) {
+                    console.error('Error sharing:', error);
+                }
+            });
+        } else {
+            shareButton.style.display = 'none';
+        }
+
+        // QR Code Fullscreen Pop-up
+        const qrCode = document.getElementById('qr-code');
+        const body = document.body;
+
+        qrCode.addEventListener('click', () => {
+            const fullscreenDiv = document.createElement('div');
+            fullscreenDiv.classList.add('fullscreen-qr-overlay');
+            fullscreenDiv.innerHTML = `
+                <img src="${qrCode.src}" alt="QR Code to share the site" class="fullscreen-qr-image">
+                <button class="close-button">X</button>
+            `;
+            body.appendChild(fullscreenDiv);
+
+            const closeButton = fullscreenDiv.querySelector('.close-button');
+            closeButton.addEventListener('click', () => {
+                body.removeChild(fullscreenDiv);
+            });
+
+            // Handle "Escape" key for desktop
+            document.addEventListener('keydown', function escapeHandler(e) {
+                if (e.key === "Escape") {
+                    body.removeChild(fullscreenDiv);
+                    document.removeEventListener('keydown', escapeHandler);
+                }
+            });
+
+            // Handle "Back" button for mobile (push a state to history)
+            history.pushState({ qrOpen: true }, '', '#qr-open');
+            window.addEventListener('popstate', function popstateHandler(e) {
+                if (!e.state || !e.state.qrOpen) {
+                    const overlay = document.querySelector('.fullscreen-qr-overlay');
+                    if (overlay) {
+                        body.removeChild(overlay);
+                    }
+                    window.removeEventListener('popstate', popstateHandler);
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>

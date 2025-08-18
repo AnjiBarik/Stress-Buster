@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bubble Pop — Festive Edition</title>
+<style> 
+  html,body{height:100%;margin:0;background:#03060e;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+  canvas{display:block;border-radius:20px}
+  .hud{position:fixed;left:16px;top:16px;color:#012a38;background:rgba(255,255,255,0.94);padding:8px 12px;border-radius:10px;font-weight:800;box-shadow:0 6px 16px rgba(0,0,0,.18)}
+  .bar{position:fixed;left:16px;top:64px;width:240px;height:12px;background:#e9eef4;border-radius:8px;overflow:hidden;box-shadow:inset 0 2px 5px rgba(0,0,0,.08)}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#7f8c8d,#2c3e50)}
+  .controls{position:fixed;left:16px;top:90px;display:flex;gap:8px;flex-wrap:wrap}
+  button, select{padding:.48rem .76rem;border-radius:9px;border:0;cursor:pointer;background:linear-gradient(#f7f9fd,#e7edf7);box-shadow:0 6px 18px rgba(0,0,0,0.14);font-weight:800}
+  select{min-width:110px}
+  #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);color:#023}
+  .card{background:#fff;padding:18px 20px;border-radius:14px;max-width:760px;text-align:center;box-shadow:0 16px 40px rgba(0,0,0,.25)}
+  .small{font-size:13px;color:#334}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="1200" height="700" aria-label="Bubble Game"></canvas>
+</div>
+<div class="hud" id="hud">Score: 0 · Level: 1 · Record: 0 · Wave in: 30s · Difficulty: Medium</div>
+<div class="bar"><i id="murkBar" style="width:0%"></i></div>
+<div class="controls">
+  <button id="pauseBtn">⏸ Pause</button>
+  <button id="stopBtn">⏹ Stop</button>
+  <select id="difficulty">
+    <option value="Easy">Easy</option>
+    <option value="Medium" selected>Medium</option>
+    <option value="Hard">Hard</option>
+  </select>
+  <button id="muteBtn">🔊 Mute</button>
+</div>
+<div id="overlay">
+  <div class="card">
+    <h1 style="margin:0 0 8px">Bubble Pop — Festive Edition</h1>
+    <p class="small">
+      Guide your soap bubble with mouse/touch. Absorb clear bubbles to grow; avoid murky bubbles (increase murkiness).<br/>
+      If murkiness &gt; 50% your bubble sheds pieces and shrinks.<br/>
+      <b>Boss waves:</b> beware of Crystals they move in waves.      
+    </p>
+    <div style="margin-top:12px"><button id="startBtn">Start</button></div>
+  </div>
+</div>
+<script>
+// Bubble Pop — Festive Edition
+(function(){
+  // === Canvas & scaling ===
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  function resize(){
+    const ratio = window.devicePixelRatio||1;
+    canvas.width = Math.floor(window.innerWidth*0.98) * ratio;
+    canvas.height = Math.floor(window.innerHeight*0.78) * ratio;
+    canvas.style.width = Math.floor(window.innerWidth*0.98)+'px';
+    canvas.style.height = Math.floor(window.innerHeight*0.78)+'px';
+    ctx.setTransform(ratio,0,0,ratio,0,0);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  // === DOM nodes ===
+  const hud = document.getElementById('hud');
+  const murkBar = document.getElementById('murkBar');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const muteBtn = document.getElementById('muteBtn');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+  const difficultySelect = document.getElementById('difficulty');
+
+  // === Helpers ===
+  const rnd=(a,b)=>Math.random()*(b-a)+a;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const areaFromR=r=>Math.PI*r*r; const rFromArea=a=>Math.sqrt(a/Math.PI);
+
+  // === Game state ===
+  let player, bubbles, shards, pointer, time, level, score, paused, gameover;
+  let spawnTimer;
+  const minR = 10;
+  let bokeh = [];
+  let drift = {x:0,y:0}, driftTimer = 0;
+
+  // === Boss waves state ===
+  let bosses = [];
+  let waveCooldown = 30; // time to next wave (sec)
+  let waveActive = false;
+  let waveTimer = 0; // remaining time in active wave
+  let bossSpawnTimer = 0; // time to next boss inside wave
+
+  // === Difficulty settings ===
+  const DIFF = {
+    Easy:  { waveLength: 8,  intervalMin: 3.5, intervalMax: 5.0, hpMul: 0.85 },
+    Medium:{ waveLength: 12, intervalMin: 2.0, intervalMax: 4.0, hpMul: 1.0 },
+    Hard:  { waveLength: 18, intervalMin: 1.2, intervalMax: 3.0, hpMul: 1.3 }
+  };
+  let currentDiff = 'Medium';
+
+  // === Sound (unchanged API + mute) ===
+  class Sfx{ constructor(){ this.ctx=null; this.muted=false; }
+    _ctx(){ if(this.muted) return null; if(!this.ctx){ const C=window.AudioContext||window.webkitAudioContext; if(C) this.ctx=new C(); } return this.ctx; }
+    unlock(){ const c=this._ctx(); if(c && c.state==='suspended') c.resume(); }
+    mute(v){ this.muted=!!v; }
+    tone(f,d=0.12,t='sine'){ const c=this._ctx(); if(!c) return; const o=c.createOscillator(); const g=c.createGain(); o.type=t; o.frequency.value=f; g.gain.setValueAtTime(0.0001,c.currentTime); g.gain.exponentialRampToValueAtTime(0.5,c.currentTime+0.01); g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+d); o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime+d+0.02); }
+    noise(d=0.18,lp=1500,vol=0.25){ const c=this._ctx(); if(!c) return; const len=Math.floor(c.sampleRate*d); const b=c.createBuffer(1,len,c.sampleRate); const ch=b.getChannelData(0); for(let i=0;i<len;i++){ ch[i]=(Math.random()*2-1)*(1-i/len); } const src=c.createBufferSource(); src.buffer=b; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=lp; const g=c.createGain(); g.gain.value=vol; src.connect(f).connect(g).connect(c.destination); src.start(); }
+  }
+  const sfx = new Sfx(); window.addEventListener('pointerdown', ()=>sfx.unlock(), {once:true});
+
+  // === Drawing functions (preserve original look, add soft internal sparks inside boss) ===
+  function drawBubble(x,y,r,isMurky=false){
+    ctx.save();
+    const g=ctx.createRadialGradient(x-r*0.35,y-r*0.45,r*0.2,x,y,r);
+    if(isMurky){ g.addColorStop(0,'rgba(170,180,185,0.85)'); g.addColorStop(1,'rgba(120,130,140,0.6)'); }
+    else { g.addColorStop(0,'rgba(230,250,255,0.92)'); g.addColorStop(1,'rgba(140,190,230,0.55)'); }
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    const rainbow=ctx.createLinearGradient(x-r,y-r,x+r,y+r);
+    const hue = (time*20)%360; const h1=(hue|0), h2=(hue+120)|0, h3=(hue+240)|0;
+    rainbow.addColorStop(0,`hsla(${h1},85%,72%,0.6)`);
+    rainbow.addColorStop(0.5,`hsla(${h2},85%,70%,0.45)`);
+    rainbow.addColorStop(1,`hsla(${h3},85%,72%,0.6)`);
+    ctx.lineWidth=Math.max(1.5,r*0.06); ctx.strokeStyle=rainbow; ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.78)'; ctx.beginPath(); ctx.ellipse(x-r*0.35,y-r*0.45,r*0.2,r*0.12,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(x+r*0.18,y+r*0.22,r*0.08,r*0.05,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Boss Crystal
+  function drawCrystal(x,y,r){
+    ctx.save(); ctx.translate(x,y);
+    // Outer spines 
+    const sides=10; ctx.beginPath();
+    for(let i=0;i<sides;i++){ const a=i/sides*Math.PI*2 + Math.sin(time*0.6+i)*0.04; const rr=r*(0.7 + (i%2?0.32:0)); const px=Math.cos(a)*rr, py=Math.sin(a)*rr; if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+    ctx.closePath();
+    const grad=ctx.createLinearGradient(-r,-r,r,r); grad.addColorStop(0,'rgba(220,240,255,0.98)'); grad.addColorStop(1,'rgba(120,170,230,0.88)');
+    ctx.fillStyle=grad; ctx.fill();
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(40,80,160,0.95)'; ctx.stroke();
+
+    // Internal soft flashes/figures
+    const sparkCount = 6;
+    for(let i=0;i<sparkCount;i++){
+      const ang = (i/sparkCount)*Math.PI*2 + Math.sin(time*0.9 + i)*0.15;
+      const dist = r*0.28 + Math.sin(time*1.2 + i)*r*0.05;
+      const sx = Math.cos(ang)*dist; const sy = Math.sin(ang)*dist;
+      const spr = r*0.18 * (0.6 + 0.4*Math.abs(Math.sin(time*0.6 + i)));
+      const alpha = 0.18 + 0.12*Math.sin(time*1.1 + i);
+      const col = `rgba(${140 + i*10},${200 - i*8},${240 - i*6},${alpha.toFixed(2)})`;
+      ctx.beginPath(); ctx.ellipse(sx,sy,spr,spr*0.6,ang*0.2,0,Math.PI*2); ctx.fillStyle=col; ctx.fill();
+    }
+
+    // small internal glints
+    for(let j=0;j<3;j++){ ctx.fillStyle='rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.arc(Math.cos(time*1.7+j)*r*0.12, Math.sin(time*1.3+j)*r*0.07, 3+j*0.6,0,Math.PI*2); ctx.fill(); }
+
+    ctx.restore();
+  }
+
+  // === Init & Entities ===
+  function init(){
+    const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr;
+    player={x:W/2,y:H/2,r:26,murk:0,vx:0,vy:0};
+    bubbles=[]; shards=[]; pointer={x:player.x,y:player.y};
+    time=0; level=1; score=0; paused=false; gameover=false;
+
+    bosses=[]; waveCooldown=30; waveActive=false; waveTimer=0; bossSpawnTimer=0;
+
+    bokeh=[]; for(let i=0;i<26;i++){ bokeh.push({x:rnd(0,W),y:rnd(0,H),r:rnd(30,120),a:rnd(0.05,0.16),h:(rnd(0,360)|0), l:rnd(70,95)}); }
+    driftTimer=0; drift={x:0,y:0}; changeDrift(); setupEmitters(W,H);
+    spawnTimer=0.5; updateHUD(); // set initial HUD
+    // set current difficulty label
+    currentDiff = difficultySelect.value || 'Medium';
+    updateHUD();
+    muteBtn.textContent = sfx.muted ? '🔇 Unmute' : '🔊 Mute';
+  }
+
+  // emitters keep bubbles flowing
+  const emitters = [];
+  function setupEmitters(W,H){ emitters.length=0; const positions=[{x:W*0.1,y:H+20,dir:-Math.PI/2},{x:W*0.9,y:H+20,dir:-Math.PI/2},{x:-20,y:H*0.3,dir:0},{x:W+20,y:H*0.7,dir:Math.PI},{x:W*0.5,y:-20,dir:Math.PI/2}]; for(const p of positions){ emitters.push({x:p.x,y:p.y,dir:p.dir,spread:Math.PI/5,period:rnd(2.5,4.5),timer:0,strength:rnd(4,7)}); } }
+
+  function spawnBubble(x,y,angle){ const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr; const r=rnd(10,24); const clear=Math.random()<0.7; const murky=!clear && Math.random()<0.85; const speed=rnd(60,120); const vx=Math.cos(angle)*speed + rnd(-20,20); const vy=Math.sin(angle)*speed + rnd(-20,20); bubbles.push({x:x, y:y, r, clear, murky, vx, vy}); }
+
+  // === Boss spawn behavior (horizontal X random or near pointer) ===
+  function spawnBoss(){
+    const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr;
+    const nearCursor = Math.random() < 0.5;
+    const x = clamp(nearCursor ? (pointer.x + rnd(-80,80)) : rnd(60, W-60), 60, W-60);
+    const baseHp = 55 + level*4 + Math.min(score/150, 80);
+    const hp = Math.round(baseHp * (DIFF[currentDiff].hpMul||1));
+    bosses.push({x, y:-120, r:90, vy:24, hp});
+  }
+
+  function changeDrift(){ drift.x=rnd(-12,12); drift.y=rnd(-8,8); }
+
+  function popPieces(areaLoss){ const area=areaFromR(player.r); const newArea=Math.max(area-areaLoss, Math.PI*minR*minR); const lost=area-newArea; if(lost<=0) return; const pieces=Math.min(10, Math.ceil(lost/(Math.PI*6))); for(let i=0;i<pieces;i++){ const a=lost/pieces; const r=Math.max(1.5, rFromArea(a)); shards.push({x:player.x+rnd(-player.r,player.r), y:player.y+rnd(-player.r,player.r), r, vx:rnd(-150,150), vy:rnd(-220,-60), life:0, ttl:1.6+rnd(0,1.2)}); } player.r=rFromArea(newArea); }
+
+  // === Main loop ===
+  let last = performance.now();
+  function loop(now){ const dt = Math.min(0.033,(now-last)/1000); last = now; update(dt); render(); requestAnimationFrame(loop); }
+
+  // === Waves lifecycle uses difficulty settings ===
+  function updateWaves(dt){
+    const cfg = DIFF[currentDiff] || DIFF.Medium;
+    if(!waveActive){
+      waveCooldown -= dt;
+      if(waveCooldown <= 0){ waveActive = true; waveTimer = cfg.waveLength; bossSpawnTimer = 0; }
+    } else {
+      waveTimer -= dt;
+      // score influence shifts interval toward intervalMin
+      const t = clamp(score/6000, 0, 1);
+      const minI = cfg.intervalMin; const maxI = cfg.intervalMax;
+      const target = maxI - (maxI - minI) * t; // from maxI down to minI
+      bossSpawnTimer -= dt;
+      if(bossSpawnTimer <= 0){ spawnBoss(); bossSpawnTimer = target + Math.random(); }
+      if(waveTimer <= 0){ waveActive = false; waveCooldown = 30; }
+    }
+  }
+
+  function update(dt){
+    time += dt; if(paused || gameover) return;
+
+    // animate bokeh
+    for(const b of bokeh){ b.x += Math.sin((time*0.2)+b.h)*0.1; b.y += Math.cos((time*0.25)+b.h)*0.1; b.a = 0.06 + 0.04*Math.sin(time*0.8 + b.h); }
+
+    driftTimer += dt; if(driftTimer > 26){ driftTimer = 0; changeDrift(); }
+
+    for(const e of emitters){ e.timer -= dt; if(e.timer <= 0){ e.timer = e.period; const count = Math.floor(e.strength); for(let i=0;i<count;i++){ const ang = e.dir + rnd(-e.spread,e.spread); spawnBubble(e.x, e.y, ang); } } }
+
+    spawnTimer -= dt; if(spawnTimer <= 0){ const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr; spawnBubble(rnd(0,W), rnd(0,H), rnd(0,Math.PI*2)); spawnTimer = Math.max(0.9 - level*0.04, 0.25); }
+
+    // boss waves
+    updateWaves(dt);
+
+    // player movement
+    player.vx += (pointer.x - player.x) * 0.12; player.vy += (pointer.y - player.y) * 0.12;
+    player.vx *= 0.86; player.vy *= 0.86; player.x += player.vx * dt * 60; player.y += player.vy * dt * 60;
+
+    const dpr = window.devicePixelRatio||1; const W = canvas.width/dpr, H = canvas.height/dpr;
+    player.x = clamp(player.x, 10, W-10); player.y = clamp(player.y, 10, H-10);
+
+    // bubbles collisions
+    for(let i=bubbles.length-1;i>=0;i--){ const b=bubbles[i]; b.x += (b.vx + drift.x) * dt; b.y += (b.vy + drift.y) * dt; if(b.x<-80) b.x=W+80; if(b.x>W+80) b.x=-80; if(b.y<-80) b.y=H+80; if(b.y>H+80) b.y=-80; const dist = Math.hypot(b.x-player.x, b.y-player.y); if(dist < b.r + player.r){ if(b.clear){ const gain = Math.PI*(b.r*0.6)**2; player.r = rFromArea(areaFromR(player.r) + gain); player.murk = clamp(player.murk - 0.06, 0, 1); score += Math.round(gain); sfx.tone(560,0.08,'triangle'); } else if(b.murky){ player.murk = clamp(player.murk + 0.08, 0, 1); sfx.noise(0.12,1000,0.2); } bubbles.splice(i,1); } }
+
+    // bosses update (multiple)
+    for(let i=bosses.length-1;i>=0;i--){ const boss = bosses[i]; boss.y += boss.vy * dt; if(Math.random() < 0.028){ const px = boss.x + rnd(-boss.r*0.5,boss.r*0.5); const py = boss.y + boss.r*0.6; if(Math.hypot(px-player.x,py-player.y) < player.r + 12){ player.murk = clamp(player.murk + 0.22, 0, 1); popPieces(areaFromR(player.r)*0.16); sfx.noise(0.2,900,0.3); } } if(Math.hypot(boss.x-player.x,boss.y-player.y) < boss.r + player.r){ boss.hp -= 1; player.murk = clamp(player.murk + 0.12, 0, 1); if(boss.hp <= 0){ score += 1600; bosses.splice(i,1); level++; sfx.tone(920,0.16,'sawtooth'); continue; } } if(boss.y > H + 200){ bosses.splice(i,1); } }
+
+    // shards
+    for(let i=shards.length-1;i>=0;i--){ const p=shards[i]; p.vy += 260*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.life += dt; if(p.life > p.ttl) shards.splice(i,1); }
+
+    if(player.murk > 0.5 && Math.random() < 0.16 * dt * 60){ popPieces(areaFromR(player.r) * 0.05); }
+
+    if(score >= level * 1400){ level++; sfx.tone(840,0.12); }
+
+    updateHUD(); if(player.r <= minR + 0.1){ gameOver(); }
+  }
+
+  function updateHUD(){ const rec = localStorage.getItem('bubbleRecord')||0; const waveText = waveActive ? `Wave: ${Math.ceil(waveTimer)}s` : `Wave in: ${Math.ceil(waveCooldown)}s`; hud.textContent = `Score: ${score} · Level: ${level} · Record: ${rec} · ${waveText} · Difficulty: ${currentDiff}`; murkBar.style.width = Math.round(player.murk*100) + '%'; }
+
+  function render(){ const dpr = window.devicePixelRatio||1; const W = canvas.width/dpr, H = canvas.height/dpr; drawBackground(); for(const b of bubbles) drawBubble(b.x,b.y,b.r,b.murky); for(const boss of bosses) drawCrystal(boss.x,boss.y,boss.r); drawBubble(player.x,player.y,player.r,false); for(const p of shards){ ctx.fillStyle='rgba(245,245,255,0.95)'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); } ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.font='12px sans-serif'; ctx.fillText('Festive bubbles — avoid murky ones and the crystal bosses!', 12, H-12); }
+
+  function drawBackground(){ const dpr = window.devicePixelRatio||1; const W = canvas.width/dpr, H = canvas.height/dpr; const g = ctx.createLinearGradient(0,0,W,H); const base = (time*12)%360; g.addColorStop(0,`hsl(${base|0},90%,88%)`); g.addColorStop(0.33,`hsl(${(base+90)|0},90%,90%)`); g.addColorStop(0.66,`hsl(${(base+180)|0},90%,88%)`); g.addColorStop(1,`hsl(${(base+270)|0},90%,90%)`); ctx.fillStyle = g; ctx.fillRect(0,0,W,H); for(const b of bokeh){ ctx.fillStyle=`hsla(${b.h},70%,${b.l|0}%,${b.a})`; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); } }
+
+  function gameOver(){ paused=true; gameover=true; const rec = parseInt(localStorage.getItem('bubbleRecord')||'0',10); if(score>rec) localStorage.setItem('bubbleRecord', score); overlay.style.display='flex'; overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🍭Score: ${score}<br>🏆Record: ${localStorage.getItem('bubbleRecord')}</p><div style="margin-top:12px"><button id=\"restart\">Restart</button></div>`; document.getElementById('restart').addEventListener('click', ()=>{ overlay.style.display='none'; init(); }); }
+
+  // === Input & UI handlers ===
+  canvas.addEventListener('pointermove', e=>{ pointer.x = e.clientX; pointer.y = e.clientY; });
+  canvas.addEventListener('touchmove', e=>{ if(e.touches[0]){ pointer.x = e.touches[0].clientX; pointer.y = e.touches[0].clientY; } }, {passive:true});
+  pauseBtn.addEventListener('click', ()=>{ paused = !paused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; });
+  stopBtn.addEventListener('click', ()=>{ gameOver(); });
+  startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); });
+
+  difficultySelect.addEventListener('change', ()=>{ currentDiff = difficultySelect.value; 
+    // if the wave is active now, we can adjust the remaining time to the new difficulty, but maintain balance
+    const cfg = DIFF[currentDiff]; if(waveActive){ waveTimer = Math.min(waveTimer, cfg.waveLength); }
+    updateHUD();
+  });
+
+  muteBtn.addEventListener('click', ()=>{ sfx.mute(!sfx.muted); muteBtn.textContent = sfx.muted ? '🔇 Unmute' : '🔊 Mute'; });
+
+  // Boot
+  init(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

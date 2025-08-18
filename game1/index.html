@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cloud Game — Enhanced</title>
+<style>
+  html, body {margin:0; height:100%; overflow:hidden; background:black;}
+  canvas {display:block;}
+  #hud {
+    position:absolute;top:5px;left:5px;color:black;
+    font:16px sans-serif;font-weight:bold;text-shadow:1px 1px 2px white;
+  }
+  #graybar {position:absolute;top:30px;left:5px;width:220px;height:10px;background:#ccc;border:1px solid #000;}
+  #grayfill {height:100%;background:#666;}
+  #buttons {position:absolute;top:50px;left:5px;display:flex;gap:6px;flex-wrap:wrap;max-width:90vw}
+  button {
+    padding:5px 10px;font-weight:bold;
+    border:none;border-radius:6px;cursor:pointer;
+    background:linear-gradient(#eee,#ccc);
+    box-shadow:0 3px 5px rgba(0,0,0,0.3);
+    transition:transform 0.1s;
+  }
+  button:active {transform:translateY(2px);}  
+  #overlay {
+    position:fixed;top:0;left:0;width:100%;height:100%;
+    background:rgba(0,0,0,0.7);color:white;
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    font-family:sans-serif;text-align:center;
+  }
+</style>
+</head>
+<body>
+<div id="hud">Score: 0  Level: 1  Record: 0  | Wave: 30s</div>
+<div id="graybar"><div id="grayfill" style="width:0%"></div></div>
+<div id="buttons">
+  <button id="pauseBtn">⏸ Pause</button>
+  <button id="stopBtn">⏹ Stop</button>
+  <button id="muteBtn">🔇 Mute</button>
+</div>
+<canvas id="game"></canvas>
+<div id="overlay">
+  <h1>Cloud Game</h1>
+  <p id="overlayText">
+    Move your cloud with the mouse or finger.<br>
+    Eat white clouds to grow.<br>
+    Touching grey clouds increases greyness.<br>
+    Too much grey makes it rain and shrink.<br>
+    Avoid bosses unless you’re ready!
+  </p>
+  <button id="startBtn">Start</button>
+</div>
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let W = canvas.width = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
+  window.addEventListener('resize', ()=>{ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; });
+
+  const hud = document.getElementById('hud');
+  const grayfill = document.getElementById('grayfill');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const muteBtn = document.getElementById('muteBtn');
+  const overlay = document.getElementById('overlay');
+  const overlayText = document.getElementById('overlayText');
+  const startBtn = document.getElementById('startBtn');
+
+  const rnd = (a,b)=>Math.random()*(b-a)+a;
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp = (a,b,t)=>a+(b-a)*t;
+
+  // === GAME STATES ===
+  let player, clouds, rain, pointer, time, spawnTimer, level, score, paused, gameover;
+  let bosses; 
+
+  // Day/night
+  let dayPhase=0, lastPhaseChange=performance.now();
+  const dayLength=5*60*1000;
+  const minR=15;
+
+  // Background elements
+  let bgClouds = [];
+  let hazeBalls = [];
+
+  // Wind control
+  let wind = {x:0, y:0};
+  let windTimer = 0;
+
+  // ===== Boss waves =====
+  // Every 30s a wave begins. During a wave, bosses spawn every 2–4s.
+  // As score grows, the interval leans toward 2s ("more score => more frequent bosses").
+  let waveCooldown = 30;   // seconds until next wave starts
+  let waveActive = false;  // is a wave currently active
+  let waveTimer = 0;       // remaining time of current wave
+  let bossSpawnTimer = 0;  // time to next boss during a wave
+
+  // === Sound synthesis (WebAudio) ===
+  let muted = false;
+  let actx = null;
+  function ensureAudio(){
+    if(muted) return null; 
+    if(!actx){ actx = new (window.AudioContext||window.webkitAudioContext)(); }
+    return actx;
+  }
+  function playTone(freq,duration){
+    const a = ensureAudio();
+    if(!a) return;
+    const osc = a.createOscillator();
+    const gain = a.createGain();
+    gain.gain.value = 0.15; // softer sound
+    osc.frequency.value=freq;
+    osc.connect(gain); gain.connect(a.destination);
+    osc.start(); osc.stop(a.currentTime+duration);
+  }
+  function playNoise(duration){
+    const a = ensureAudio();
+    if(!a) return;
+    const buffer = a.createBuffer(1, a.sampleRate*duration, a.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<data.length;i++){data[i]=Math.random()*2-1;}
+    const src = a.createBufferSource();
+    const gain = a.createGain();
+    gain.gain.value = 0.08;
+    src.buffer = buffer; src.connect(gain); gain.connect(a.destination);
+    src.start();
+  }
+  const sounds = {
+    eat: ()=>playTone(440,0.1),
+    storm: ()=>playTone(110,0.2),
+    thunder: ()=>playNoise(0.15),
+    levelup: ()=>playTone(880,0.2)
+  };
+
+  function initGame(){
+    player = {x:W/2,y:H/2,r:36,gray:0,vx:0,vy:0};
+    clouds = [];
+    bosses = [];
+    rain = [];
+    pointer = {x:W/2,y:H/2};
+    time = 0;
+    spawnTimer=0;
+    level=1;
+    score=0;
+    paused=false;
+    gameover=false;
+
+    // boss waves
+    waveCooldown = 30;
+    waveActive = false;
+    waveTimer = 0;
+    bossSpawnTimer = 0;
+
+    lastPhaseChange=performance.now();
+    windTimer = 0;
+    changeWind();
+
+    // Distant background
+    bgClouds = [];
+    for(let i=0;i<8;i++){
+      bgClouds.push({x:rnd(0,W), y:rnd(0,H), r:rnd(50,150), alpha: rnd(0.2,0.5)});
+    }
+    hazeBalls = [];
+    for(let i=0;i<15;i++){
+      hazeBalls.push({x:rnd(0,W), y:rnd(0,H), r:rnd(80,200), alpha:rnd(0.05,0.15)});
+    }
+  }
+
+  // Let's draw a fluffy cloud
+  function drawFluffy(x,y,r,gray=0){
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 10;
+    for(let i=0;i<6;i++){
+      const ang = (i/6)*Math.PI*2;
+      const rr = r*(0.6 + Math.sin(i*1.5+time*0.5)*0.1);
+      const px = x + Math.cos(ang)*r*0.5;
+      const py = y + Math.sin(ang)*r*0.3;
+      const c = Math.floor(255 - 140*gray);
+      ctx.fillStyle = `rgba(${c},${c},${c},0.9)`;
+      ctx.beginPath();
+      ctx.arc(px,py,rr,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawZigzagLightning(x,y,len){
+    ctx.strokeStyle = 'yellow';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x,y);
+    let dir=1;
+    for(let i=0;i<len;i+=10){
+      x += rnd(-5,5)*dir; y += 10; dir*=-1;
+      ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  function drawSunMoon(){
+    const centerX=W-80, centerY=80;
+    const color=dayPhase<0.5?'yellow':'white';
+    const grad = ctx.createRadialGradient(centerX,centerY,0,centerX,centerY,60);
+    grad.addColorStop(0,color);
+    grad.addColorStop(1,'rgba(255,255,0,0)');
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    ctx.arc(centerX,centerY,60,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    ctx.arc(centerX,centerY,30,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  function drawBackground(){
+    const bgRatio = dayPhase<0.5 ? (dayPhase/0.5) : (1-(dayPhase-0.5)/0.5);
+    const r = Math.floor(157 + (30*bgRatio));
+    const g = Math.floor(214 + (30*bgRatio));
+    const b = Math.floor(255);
+    ctx.fillStyle=`rgb(${r},${g},${b})`;
+    ctx.fillRect(0,0,W,H);
+
+    for(let h of hazeBalls){
+      ctx.fillStyle=`rgba(255,255,255,${h.alpha})`;
+      ctx.beginPath();
+      ctx.arc(h.x,h.y,h.r,0,Math.PI*2);
+      ctx.fill();
+    }
+    for(let c of bgClouds){
+      ctx.fillStyle = `rgba(255,255,255,${c.alpha})`;
+      ctx.beginPath();
+      ctx.arc(c.x,c.y,c.r,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // Regular clouds
+  function spawnCloud(){
+    const r = rnd(12,28);
+    const isWhite = Math.random() < 0.6;
+    const isGray = !isWhite && Math.random() < 0.5;
+    clouds.push({x:Math.random()*W,y:Math.random()*H,r,white:isWhite,gray:isGray,vx:rnd(-40,40)*level*0.2,vy:rnd(-20,20)*level*0.2});
+  }
+
+  // === BOSS ===
+  function spawnBoss(){
+    // Appears on top. Horizontal: either random or next to the cursor
+    const atCursor = Math.random() < 0.5;
+    const x = clamp(atCursor ? pointer.x + rnd(-40,40) : rnd(60, W-60), 60, W-60);
+    const y = -150;
+    // The difficulty of bosses increases slightly with level and score
+    const size = lerp(90, 130, clamp(score/5000, 0, 1));
+    const hp = Math.round(40 + level*8 + clamp(score/100, 0, 100));
+    const vy = lerp(18, 28, Math.random());
+    const vx = rnd(-10,10);
+    bosses.push({x, y, r:size, vx, vy, hp, t:0});
+  }
+
+  function changeWind(){ wind.x = rnd(-20,20); wind.y = rnd(-10,10); }
+
+  function updateWave(dt){
+    if(!waveActive){
+      // waiting for the next wave
+      waveCooldown -= dt;
+      if(waveCooldown <= 0){
+        waveActive = true;
+        // Wave duration seconds
+        waveTimer = 12;
+        // instant first boss
+        bossSpawnTimer = 0;
+      }
+    } else {
+      waveTimer -= dt;
+      // The interval is 2–4 sec, but tends to 2 sec for large counts
+      const t = clamp(score/5000, 0, 1);
+      const minI = 2.0, maxI = 4.0;
+      const targetInterval = lerp(maxI, minI, t); // the higher the count, the closer to 2s
+      bossSpawnTimer -= dt;
+      if(bossSpawnTimer <= 0){
+        spawnBoss();
+        // next spawn in range [targetInterval, targetInterval+1]
+        bossSpawnTimer = targetInterval + Math.random();
+      }
+      // the wave is over
+      if(waveTimer <= 0){
+        waveActive = false;
+        waveCooldown = 30; // new wave in 30s 
+      }
+    }
+  }
+
+  function update(dt){
+    time+=dt;
+    if(paused||gameover) return;
+
+    // We change the wind every 30 seconds
+    windTimer += dt;
+    if(windTimer >= 30){ windTimer = 0; changeWind(); }
+
+    // Spawning normal clouds
+    spawnTimer-=dt;
+    if(spawnTimer<=0){ spawnCloud(); spawnTimer=Math.max(0.8 - level*0.05, 0.3); }
+
+    // Boss waves
+    updateWave(dt);
+
+    // Player movement following the pointer (with inertia)
+    player.vx += (pointer.x-player.x)*0.1;
+    player.vy += (pointer.y-player.y)*0.1;
+    player.vx*=0.85; player.vy*=0.85;
+    player.x+=player.vx*dt*60;
+    player.y+=player.vy*dt*60;
+
+    // Regular clouds
+    for(let i=clouds.length-1;i>=0;i--){
+      const c = clouds[i];
+      c.x+= (c.vx + wind.x) * dt;
+      c.y+= (c.vy + wind.y) * dt;
+      if(Math.hypot(c.x-player.x,c.y-player.y) < c.r+player.r){
+        if(c.white){
+          player.r+=c.r*0.1;
+          player.gray=clamp(player.gray-0.05,0,1);
+          score += Math.round(c.r*10);
+          sounds.eat();
+        } else if(c.gray){
+          player.gray=clamp(player.gray+0.05,0,1);
+          sounds.storm();
+        }
+        clouds.splice(i,1);
+      }
+      // we clean it if it has gone too far
+      if(c.x<-100||c.x>W+100||c.y<-100||c.y>H+100) clouds.splice(i,1);
+    }
+
+    // Boss logic 
+    for(let i=bosses.length-1;i>=0;i--){
+      const b = bosses[i];
+      b.t += dt;
+      // slight horizontal sway, slightly reaching towards the player
+      b.vx += clamp((player.x - b.x)*0.0008, -0.5, 0.5);
+      b.x += b.vx*dt*60;
+      b.y += b.vy*dt;
+
+      // Collision with a player - inflicts "grayness" and takes damage
+      if(Math.hypot(b.x-player.x,b.y-player.y) < b.r+player.r){
+        player.gray=clamp(player.gray+0.2,0,1);
+        b.hp -= 1;
+        sounds.thunder();
+        if(b.hp<=0){
+          score+=1000;
+          bosses.splice(i,1);
+          level++; sounds.levelup();
+          continue;
+        }
+      }
+
+      // if it goes beyond the bottom of the screen, delete it
+      if(b.y > H + 200) bosses.splice(i,1);
+    }
+
+    // Rain if too grey
+    if(player.gray>0.5){
+      if(Math.random()<0.3) rain.push({x:player.x+rnd(-player.r,player.r),y:player.y+player.r,vy:rnd(200,300)});
+      player.r=Math.max(minR,player.r-dt*5);
+    }
+    for(let j=rain.length-1;j>=0;j--){
+      const drop=rain[j];
+      drop.y+=drop.vy*dt;
+      if(drop.y>H) rain.splice(j,1);
+    }
+
+    if(score >= level*500){ level++; sounds.levelup(); }
+
+    grayfill.style.width = (player.gray*100)+'%';
+
+    // HUD + Wave Timer
+    const waveInfo = waveActive ? `Wave: ${Math.ceil(waveTimer)}s` : `Wave in: ${Math.ceil(waveCooldown)}s`;
+    hud.textContent = `Score: ${score}  Level: ${level}  Record: ${localStorage.getItem('cloudRecord')||0}  | ${waveInfo}`;
+
+    // Day/night
+    const now=performance.now();
+    const elapsed=(now-lastPhaseChange)/dayLength;
+    dayPhase=(elapsed%1);
+
+    if(player.r<=minR){ stopGame(); }
+  }
+
+  function render(){
+    drawBackground();
+    for(let c of clouds){ drawFluffy(c.x,c.y,c.r,c.white?0:0.5); }
+    for(let b of bosses){ drawFluffy(b.x,b.y,b.r,0.7); drawZigzagLightning(b.x,b.y+b.r/2,80); }
+    drawFluffy(player.x,player.y,player.r,player.gray);
+    ctx.fillStyle='blue';
+    for(let drop of rain){ ctx.fillRect(drop.x,drop.y,2,5); }
+    drawSunMoon();
+  }
+
+  function saveRecord(){ const record = parseInt(localStorage.getItem('cloudRecord')||0); if(score > record) localStorage.setItem('cloudRecord', score); }
+
+  function stopGame(){
+    paused=true; gameover=true; saveRecord();
+    const record = localStorage.getItem('cloudRecord')||0;
+    overlay.style.display='flex';
+    overlayText.innerHTML = `<h2>Game Over</h2><p>⛅Score: ${score}<br>🏆Record: ${record}</p>`;
+    startBtn.textContent='Restart';
+  }
+
+  let lastTime=performance.now();
+  function loop(){
+    const now=performance.now();
+    const dt=(now-lastTime)/1000;
+    lastTime=now;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  // === Input ===
+  canvas.addEventListener('mousemove', e=>{ pointer.x=e.clientX; pointer.y=e.clientY; });
+  canvas.addEventListener('touchmove', e=>{ pointer.x=e.touches[0].clientX; pointer.y=e.touches[0].clientY; });
+
+  pauseBtn.addEventListener('click', ()=>{
+    paused=!paused;
+    pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+  });
+  stopBtn.addEventListener('click', stopGame);
+  muteBtn.addEventListener('click', ()=>{
+    muted = !muted;
+    if(actx && muted){ actx.suspend && actx.suspend(); }
+    if(actx && !muted){ actx.resume && actx.resume(); }
+    muteBtn.textContent = muted ? '🔈 Unmute' : '🔇 Mute';
+  });
+  startBtn.addEventListener('click', ()=>{
+    overlay.style.display='none';
+    initGame();
+  });
+
+  // Start
+  initGame();
+  loop();
+})();
+</script>
+</body>
+</html>

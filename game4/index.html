@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Comet Dash — Cartoon Comet</title>
+<style>
+  html,body{height:100%;margin:0;background:#000;font-family:Inter,system-ui,Arial,sans-serif}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+  canvas{display:block;border-radius:12px}
+  .hud{position:fixed;left:16px;top:12px;background:rgba(255,255,255,0.95);padding:8px 12px;border-radius:10px;font-weight:800;color:#041}
+  .bar{position:fixed;left:16px;top:56px;width:240px;height:12px;background:#4d4c4c;border-radius:8px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,#444,#111)}
+  .controls{position:fixed;left:16px;top:84px;display:flex;gap:8px}
+  button{padding:.45rem .7rem;border-radius:8px;border:0;background:linear-gradient(#f4f4f4,#e4e4e4);box-shadow:0 6px 18px rgba(0,0,0,0.12);font-weight:800;cursor:pointer}
+  #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);color:#fff}
+  .card{background:linear-gradient(#041228,#071a2b);padding:18px;border-radius:12px;max-width:760px;text-align:center;color:#dff}
+  .small{font-size:13px;color:#bdf}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="1200" height="700" aria-label="Comet Dash"></canvas></div>
+<div class="hud" id="hud">Mass: 0 · Level: 1 · Record: 0</div>
+<div class="bar"><i id="damageBar" style="width:0%"></i></div>
+<div class="controls">
+  <button id="pauseBtn">⏸ Pause</button>
+  <button id="stopBtn">⏹ Stop</button>
+  <button id="muteBtn">🔊 Mute</button>
+</div>
+<div id="overlay">
+  <div class="card">
+    <h1 style="margin:0 0 8px">Comet Dash</h1>
+    <p class="small">Control a friendly comet. Collect icy chunks to grow and sparkle. Avoid rocky asteroids (cause damage). When damage &gt; 50% the comet emits a glowing tail and loses mass. Boss: a cartoon black hole that spirals and pulls — avoid it. Use Mute to toggle sound. Press Start to launch!</p>
+    <div style="margin-top:12px"><button id="startBtn">Start</button></div>
+  </div>
+</div>
+<script>
+// Comet Dash — reuse engine patterns from previous games
+(function(){
+  // Canvas setup (DPR aware)
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  function resize(){ const r=window.devicePixelRatio||1; canvas.width=Math.floor(window.innerWidth*0.95)*r; canvas.height=Math.floor(window.innerHeight*0.78)*r; canvas.style.width=Math.floor(window.innerWidth*0.95)+'px'; canvas.style.height=Math.floor(window.innerHeight*0.78)+'px'; ctx.setTransform(r,0,0,r,0,0); }
+  window.addEventListener('resize', resize); resize();
+
+  // UI
+  const hud = document.getElementById('hud');
+  const damageBar = document.getElementById('damageBar');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const muteBtn = document.getElementById('muteBtn');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+
+  // helpers
+  const rnd=(a,b)=>Math.random()*(b-a)+a; const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const areaFromR=r=>Math.PI*r*r; const rFromArea=a=>Math.sqrt(a/Math.PI);
+
+  // game state
+  let comet, asteroids, particles, pointer, time, level, score, paused, gameover, boss;
+  const minR=12; // minimum radius before loss
+
+  // background stars & icy background chunks
+  let stars=[]; let iceFields=[]; // big distant ice with blur
+
+  // drift current
+  let drift={x:0,y:0}; let driftTimer=0;
+
+  // boss timer (more frequent)
+  let bossTimer=0; const bossMin=5, bossMax=45; // seconds
+
+  // emitters for asteroid/ice waves
+  const emitters=[];
+
+  // audio (WebAudio) with mute
+  class Sfx{ constructor(){ this.ctx=null; this.muted=false;} _ctx(){ if(this.muted) return null; if(!this.ctx){ const C=window.AudioContext||window.webkitAudioContext; if(C) this.ctx=new C(); } return this.ctx; } unlock(){ const c=this._ctx(); if(c && c.state==='suspended') c.resume(); } mute(v){ this.muted=!!v; } tone(freq,dur=0.12,type='sine'){ const c=this._ctx(); if(!c) return; const o=c.createOscillator(); const g=c.createGain(); o.type=type; o.frequency.value=freq; g.gain.setValueAtTime(0.0001,c.currentTime); g.gain.exponentialRampToValueAtTime(0.6,c.currentTime+0.01); g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+dur); o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime+dur+0.02); } noise(d=0.18,lp=1200,vol=0.25){ const c=this._ctx(); if(!c) return; const len=Math.floor(c.sampleRate*d); const buf=c.createBuffer(1,len,c.sampleRate); const ch=buf.getChannelData(0); for(let i=0;i<len;i++){ ch[i]=(Math.random()*2-1)*(1 - i/len); } const src=c.createBufferSource(); src.buffer=buf; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=lp; const g=c.createGain(); g.gain.value=vol; src.connect(f).connect(g).connect(c.destination); src.start(); } }
+  const sfx=new Sfx(); window.addEventListener('pointerdown',()=>sfx.unlock(),{once:true});
+
+  // draw distant stars and icy fields
+  function initBackground(){ const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr; stars=[]; for(let i=0;i<160;i++){ stars.push({x:rnd(0,W), y:rnd(0,H), r:rnd(0.4,1.8), a:rnd(0.4,1), tw: rnd(0.5,1.6)}); } iceFields=[]; for(let i=0;i<10;i++){ iceFields.push({x:rnd(0,W), y:rnd(0,H), r:rnd(60,180), a:rnd(0.04,0.14)}); } }
+
+  // draw comet (player) with core and glow, and tail when active
+  function drawComet(x,y,r,damage){ ctx.save(); // glow
+    const g=ctx.createRadialGradient(x,y,0,x,y,r*2); g.addColorStop(0,'rgba(255,255,220,0.95)'); g.addColorStop(0.6,'rgba(255,220,160,0.35)'); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*2.2,0,Math.PI*2); ctx.fill();
+    // core
+    ctx.fillStyle='rgba(255,250,230,0.98)'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    // icy sparkle
+    ctx.fillStyle='rgba(180,230,255,0.7)'; ctx.beginPath(); ctx.ellipse(x-r*0.25,y-r*0.25,r*0.35,r*0.2, -0.4,0,Math.PI*2); ctx.fill();
+    // outline
+    ctx.lineWidth=1; ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+    // tail when damage>0.5 or moving
+    if(damage>0.5 || (Math.hypot(comet.vx,comet.vy)>6)){
+      for(let i=0;i<12;i++){ const t=i/12; const lx = x - comet.vx*(t*4) - comet.vx*(t*2); const ly = y - comet.vy*(t*4) - comet.vy*(t*2) + i*1.5; const rr = r*(0.6*(1-t)); ctx.fillStyle = `rgba(255,200,150,${0.35*(1-t)})`; ctx.beginPath(); ctx.ellipse(lx,ly, rr, rr*0.6, 0,0,Math.PI*2); ctx.fill(); }
+    }
+    ctx.restore(); }
+
+  // draw asteroid (rock) and icy chunk
+  function drawAsteroid(a){ ctx.save(); ctx.translate(a.x,a.y); ctx.fillStyle = a.rock ? 'rgba(120,120,120,0.95)' : 'rgba(200,235,255,0.95)'; ctx.beginPath(); ctx.ellipse(0,0,a.r*1.1,a.r*0.8, Math.sin(a.rot)*0.2,0,Math.PI*2); ctx.fill(); // rough surface
+    if(!a.rock){ ctx.fillStyle='rgba(230,255,255,0.85)'; ctx.beginPath(); ctx.arc(-a.r*0.2,-a.r*0.2,a.r*0.25,0,Math.PI*2); ctx.fill(); }
+    ctx.restore(); }
+
+  // draw black hole boss as spiral
+  function drawBlackHole(x,y,r,rot){ ctx.save(); ctx.translate(x,y);
+    // spiral using strokes
+    ctx.lineWidth = 3; ctx.strokeStyle='rgba(20,20,30,0.95)'; ctx.beginPath();
+    for(let i=0;i<120;i++){ const t=i/120; const ang = t*Math.PI*6 + rot; const rad = r*(0.2 + t*1.6); const px = Math.cos(ang)*rad; const py = Math.sin(ang)*rad; if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+    ctx.stroke();
+    // core
+    ctx.beginPath(); ctx.arc(0,0,r*0.45,0,Math.PI*2); ctx.fillStyle='black'; ctx.fill();
+    ctx.restore(); }
+
+  // initialize game variables
+  function init(){ const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr; comet={x:W/2,y:H/2,r:28,vx:0,vy:0,damage:0}; asteroids=[]; particles=[]; pointer={x:comet.x,y:comet.y}; time=0; level=1; score=0; paused=false; gameover=false; boss=null; bossTimer=rnd(bossMin,bossMax); emitters.length=0; // create emitters around edges
+    emitters.push({x:W*0.1,y:H+30,dir:-Math.PI/2,spread:0.4,period:2.6,timer:0,str:5}); emitters.push({x:W*0.9,y:H+30,dir:-Math.PI/2,spread:0.4,period:3.2,timer:0,str:6}); emitters.push({x:-30,y:H*0.4,dir:0,spread:0.6,period:3.8,timer:0,str:4}); emitters.push({x:W+30,y:H*0.7,dir:Math.PI,spread:0.6,period:3.5,timer:0,str:4}); emitters.push({x:W*0.5,y:-30,dir:Math.PI/2,spread:0.35,period:2.9,timer:0,str:5}); initBackground(); updateHud(); }
+
+  // background stars/ice
+  function initBackground(){ const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr; stars=[]; for(let i=0;i<170;i++){ stars.push({x:rnd(0,W),y:rnd(0,H),r:rnd(0.3,1.6),a:rnd(0.2,1),tw:rnd(0.5,1.6)}); } iceFields=[]; for(let i=0;i<12;i++){ iceFields.push({x:rnd(0,W),y:rnd(0,H),r:rnd(80,200),a:rnd(0.03,0.13)}); } }
+
+  // spawn asteroid/ice chunk from emitters
+  function spawnFromEmitter(e){ const dpr=window.devicePixelRatio||1; const sz = rnd(10,26); const angle = e.dir + rnd(-e.spread,e.spread); const speed = rnd(60,140); const vx = Math.cos(angle)*speed; const vy = Math.sin(angle)*speed; const isRock = Math.random() < 0.32; const x=e.x + rnd(-8,8); const y=e.y + rnd(-8,8); asteroids.push({x,y,r:sz,rock:isRock, vx: vx + drift.x, vy: vy + drift.y, rot: rnd(0,6.28)}); }
+
+  // change drift current
+  function changeDrift(){ drift.x = rnd(-10,10); drift.y = rnd(-6,6); }
+
+  // pop pieces function (comet loses mass)
+  function shedMass(areaLoss){ const area = areaFromR(comet.r); const newArea = Math.max(area - areaLoss, Math.PI*minR*minR); const lost = area - newArea; if(lost <= 0) return; const pieces = Math.min(10, Math.ceil(lost/(Math.PI*6))); for(let i=0;i<pieces;i++){ const a = lost/pieces; const r = Math.max(1.2, rFromArea(a)); particles.push({x:comet.x + rnd(-comet.r, comet.r), y:comet.y + rnd(-comet.r, comet.r), r, vx: rnd(-120,120), vy: rnd(-200,-40), life:0, ttl:1.6 + Math.random()*1.4}); } comet.r = rFromArea(newArea); }
+
+  // update loop
+  let last = performance.now(); function loop(now){ const dt = Math.min(0.033,(now-last)/1000); last = now; update(dt); render(); requestAnimationFrame(loop); }
+
+  function update(dt){ time += dt; if(paused || gameover) return; // background star twinkle
+    for(const s of stars){ s.a = 0.5 + 0.5*Math.sin(time*s.tw); }
+    // drift change occasionally
+    driftTimer += dt; if(driftTimer > 28){ driftTimer = 0; changeDrift(); }
+    // emitters spawn
+    for(const e of emitters){ e.timer -= dt; if(e.timer <= 0){ e.timer = e.period; const count = Math.floor(e.str); for(let i=0;i<count;i++) spawnFromEmitter(e); } }
+    // fallback spawn
+    if(Math.random() < 0.02) spawnFromEmitter(emitters[Math.floor(rnd(0,emitters.length))]);
+    // boss timer
+    bossTimer -= dt; if(bossTimer <= 0){ spawnBlackHole(); bossTimer = rnd(bossMin,bossMax); }
+    // move comet toward pointer
+    comet.vx += (pointer.x - comet.x) * 0.12; comet.vy += (pointer.y - comet.y) * 0.12; comet.vx *= 0.86; comet.vy *= 0.86; comet.x += comet.vx * dt * 60; comet.y += comet.vy * dt * 60; const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr; comet.x = clamp(comet.x, 10, W-10); comet.y = clamp(comet.y, 10, H-10);
+    // asteroids update
+    for(let i=asteroids.length-1;i>=0;i--){ const a=asteroids[i]; a.x += (a.vx + drift.x) * dt; a.y += (a.vy + drift.y) * dt; a.rot += dt*0.6; if(a.x < -120 || a.x > W+120 || a.y < -120 || a.y > H+120) { asteroids.splice(i,1); continue; } const dist = Math.hypot(a.x - comet.x, a.y - comet.y); if(dist < a.r + comet.r){ if(!a.rock){ // ice chunk: grow
+            const gain = Math.PI*(a.r*0.6)*(a.r*0.6); const newArea = areaFromR(comet.r) + gain; comet.r = rFromArea(newArea); score += Math.round(gain); sfx.tone(520,0.08,'triangle'); comet.damage = clamp(comet.damage - 0.05, 0, 1);
+          } else { // rock: damage
+            comet.damage = clamp(comet.damage + 0.08, 0, 1); sfx.noise(0.12,900,0.22);
+          } asteroids.splice(i,1); }
+    }
+    // boss behaviour
+    if(boss){ boss.rot += dt*1.2; boss.y += boss.vy * dt; // gravity-like pull
+      for(const a of asteroids){ const dx = boss.x - a.x, dy = boss.y - a.y; const d = Math.hypot(dx,dy); if(d < 400){ const pull = 40 / (0.5 + d*0.02); a.vx += (dx/d) * pull * dt; a.vy += (dy/d) * pull * dt; } }
+      // if comet too close
+      const dC = Math.hypot(boss.x - comet.x, boss.y - comet.y); if(dC < boss.r + comet.r){ comet.damage = clamp(comet.damage + 0.15, 0, 1); shedMass(areaFromR(comet.r)*0.18); sfx.noise(0.18,700,0.35); if(--boss.hp <= 0){ score += 2000; boss = null; level++; sfx.tone(920,0.16,'sawtooth'); } }
+    }
+    // particles (shed) update
+    for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.vy += 260 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life += dt; if(p.life > p.ttl) particles.splice(i,1); }
+    // if damage > 0.5 occasionally shed mass
+    if(comet.damage > 0.5 && Math.random() < 0.18 * dt * 60){ shedMass(areaFromR(comet.r) * 0.05); }
+    // level up condition
+    if(score >= level * 1600){ level++; sfx.tone(860,0.12); }
+    // update HUD
+    updateHud(); if(comet.r <= minR + 0.1){ doGameOver(); }
+  }
+
+  function drawBackground(){ const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr, H=canvas.height/dpr; // animated deep-space gradient
+    const g = ctx.createLinearGradient(0,0,W,H); g.addColorStop(0,'#07031a'); g.addColorStop(0.5,'#001029'); g.addColorStop(1,'#040014'); ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    // ice fields as soft glows
+    for(const f of iceFields){ ctx.fillStyle = `rgba(180,220,255,${f.a})`; ctx.beginPath(); ctx.ellipse(f.x,f.y,f.r,f.r*0.6,0,0,Math.PI*2); ctx.fill(); }
+    // stars
+    for(const s of stars){ ctx.fillStyle = `rgba(255,255,255,${s.a})`; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill(); }
+    // subtle nebula shimmer
+    ctx.save(); ctx.globalAlpha = 0.06; ctx.fillStyle = '#9be'; ctx.beginPath(); ctx.ellipse(W*0.7, H*0.3, W*0.25, H*0.12, 0,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+
+  function render(){ drawBackground(); // draw asteroids
+    for(const a of asteroids) drawAsteroid(a); // boss
+    if(boss) drawBlackHole(boss.x, boss.y, boss.r, boss.rot);
+    // comet
+    drawComet(comet.x, comet.y, comet.r, comet.damage);
+    // particles
+    for(const p of particles){ ctx.fillStyle='rgba(255,210,160,0.95)'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); }
+    // footer text
+    const dpr=window.devicePixelRatio||1; const H=canvas.height/dpr; ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.font='12px sans-serif'; ctx.fillText('Comet Dash — collect ice, avoid rocks and the black hole!', 12, H-12); }
+
+  function updateHud(){ hud.textContent = `Mass: ${Math.round(areaFromR(comet.r))} · Level: ${level} · Record: ${localStorage.getItem('cometRecord')||0}`; damageBar.style.width = Math.round(comet.damage*100)+'%'; }
+
+  function spawnBlackHole(){ const dpr=window.devicePixelRatio||1; const W=canvas.width/dpr; boss = {x: rnd(0.2,0.8)*W, y:-140, r:90, vy:20, hp:60, rot:0}; }
+
+  function shedMass(areaLoss){ const area = areaFromR(comet.r); const newArea = Math.max(area - areaLoss, Math.PI*minR*minR); const lost = area - newArea; if(lost<=0) return; const pieces = Math.min(10, Math.ceil(lost/(Math.PI*6))); for(let i=0;i<pieces;i++){ const a = lost/pieces; const r = Math.max(1.2, rFromArea(a)); particles.push({x:comet.x + rnd(-comet.r,comet.r), y:comet.y + rnd(-comet.r,comet.r), r, vx:rnd(-140,140), vy:rnd(-200,-40), life:0, ttl:1.6 + Math.random()*1.4}); } comet.r = rFromArea(newArea); }
+
+  function doGameOver(){ paused=true; gameover=true; const rec = parseInt(localStorage.getItem('cometRecord')||'0',10); const mass = Math.round(areaFromR(comet.r)); if(mass > rec) localStorage.setItem('cometRecord', mass); overlay.style.display='flex'; overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class=\"small\">⭐Mass: ${mass}<br>🏆Record: ${localStorage.getItem('cometRecord')}</p><div style=\"margin-top:12px\"><button id=\"restart\">Restart</button></div>`; document.getElementById('restart').addEventListener('click', ()=>{ overlay.style.display='none'; init(); }); }
+
+  // input
+  canvas.addEventListener('pointermove', e=>{ pointer.x = e.clientX; pointer.y = e.clientY; });
+  canvas.addEventListener('touchmove', e=>{ if(e.touches[0]){ pointer.x = e.touches[0].clientX; pointer.y = e.touches[0].clientY; } }, {passive:true});
+  pauseBtn.addEventListener('click', ()=>{ paused = !paused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; });
+  stopBtn.addEventListener('click', ()=>{ doGameOver(); });
+  muteBtn.addEventListener('click', ()=>{ sfx.mute(!sfx.muted); muteBtn.textContent = sfx.muted ? '🔇 Unmute' : '🔊 Mute'; });
+  startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); });
+
+  // boot
+  init(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

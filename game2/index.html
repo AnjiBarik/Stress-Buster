@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Petri Dish — Bacteria Game</title>
-<style>
-  /* === keep the original look & feel; only minimal UI addition (Mute) === */
+<style>  
   html,body{height:100%;margin:0;background:#111;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
   #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
   canvas{display:block;border-radius:20px}
   .hud{position:fixed;left:16px;top:16px;color:#072a2a;background:rgba(255,255,255,0.9);padding:8px 12px;border-radius:10px;font-weight:700}
   .bar{position:fixed;left:16px;top:64px;width:220px;height:12px;background:#eee;border-radius:8px;overflow:hidden}
   .bar > i{display:block;height:100%;background:linear-gradient(90deg,#ff8a80,#bf360c)}
-  .controls{position:fixed;left:16px;top:88px;display:flex;gap:8px}
-  button{padding:.45rem .7rem;border-radius:8px;border:0;cursor:pointer;background:linear-gradient(#f4f4f4,#e4e4e4);box-shadow:0 6px 18px rgba(0,0,0,0.12);font-weight:800}
-  #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);color:#062;}
+  .controls{position:fixed;left:16px;top:88px;display:flex;gap:8px;align-items:center}
+  button, select{padding:.45rem .7rem;border-radius:8px;border:0;cursor:pointer;background:linear-gradient(#f4f4f4,#e4e4e4);box-shadow:0 6px 18px rgba(0,0,0,0.12);font-weight:800}
+  select{appearance:none}
+  #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);color:#062}
   .card{background:#fff;padding:18px;border-radius:12px;max-width:720px;text-align:center;color:#052}
   .small{font-size:13px;color:#334}
 </style>
@@ -28,24 +28,31 @@
 <div class="controls">
   <button id="pauseBtn">⏸ Pause</button>
   <button id="stopBtn">⏹ Stop</button>
-  <!-- NEW: Mute toggle, keeps all graphics & gameplay intact -->
   <button id="muteBtn">🔇 Mute</button>
+  <!-- Difficulty selector added to the control panel -->
+  <select id="difficultySelect" aria-label="Difficulty">
+    <option value="easy">Easy</option>
+    <option value="medium" selected>Medium</option>
+    <option value="hard">Hard</option>
+  </select>
 </div>
 <div id="overlay">
   <div class="card">
     <h1 style="margin:0 0 8px">Petri Dish — Bacteria</h1>
     <p class="small">
-      Move your microbe with mouse or touch. Eat friendly bacteria to grow; avoid harmful bacteria (increase toxicity).<br/>
+       Move your microbe with mouse or touch. Eat friendly bacteria to grow; avoid harmful bacteria (increase toxicity).<br/>
       If toxicity &gt; 50% your microbe will shed pieces.<br/>
-      <b>Boss waves:</b> every 30s a wave starts; during a wave, bosses spawn every 2–4s (the more score, the closer to 2s). Bosses appear horizontally at random or near your cursor.
+      <b>😷Beware of viruses😷</b>
+      <br/><b>💊 take a pill:</b>kills all harmful entities and nullifies toxicity.
     </p>
     <div style="margin-top:12px"><button id="startBtn">Start</button></div>
   </div>
 </div>
 <script>
 // Petri Dish — cartoon bacteria game
+
 (function(){
-  // ===== Canvas & sizing (unchanged) =====
+  // ===== Canvas & sizing =====
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   function ratio(){ return window.devicePixelRatio||1; }
@@ -68,11 +75,12 @@
   const toxBar = document.getElementById('toxBar');
   const pauseBtn = document.getElementById('pauseBtn');
   const stopBtn = document.getElementById('stopBtn');
-  const muteBtn = document.getElementById('muteBtn'); // NEW
+  const muteBtn = document.getElementById('muteBtn');
   const overlay = document.getElementById('overlay');
   const startBtn = document.getElementById('startBtn');
+  const difficultySelect = document.getElementById('difficultySelect');
 
-  // ===== Utilities (unchanged) =====
+  // ===== Utilities =====
   const rnd = (a,b)=>Math.random()*(b-a)+a;
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const areaFromRadius = r=>Math.PI*r*r;
@@ -80,27 +88,50 @@
 
   // ===== Game state =====
   let player, bacteria, particles, pointer, time, spawnTimer, level, score, paused, gameover;
-  // REPLACE single boss with an array to allow multiple bosses during a wave
   let bosses = [];
-  const minRadius = 10; // when player reaches this, game over
+  const minRadius = 10;
+  let started = false; // game starts only after Start (important for AudioContext)
 
-  // Background (petri dish glass + blurred distant microbes)
+  // Pill state
+  let pill = null;          // {x,y,rx,ry,ttl}
+  let pillTimer = 0;        // time until next pill spawn
+
+  // Background elements
   let bgElements = [];
 
-  // Flow in agar (small current changes movement)
+  // Flow / environment
   let flow = {x:0,y:0};
   let flowTimer = 0;
 
-  // ===== NEW: Boss waves =====
-  // Every 30s a wave begins. During a wave, bosses spawn every 2–4s.
-  // As score grows, the interval leans toward 2s ("more score => more frequent bosses").
-  let waveCooldown = 30; // seconds until next wave starts
-  let waveActive = false; // is a wave currently active
-  let waveTimer = 0;      // remaining time of current wave
-  let bossSpawnTimer = 0; // time to next boss during a wave
-  const WAVE_LENGTH = 12; // seconds a wave lasts (kept compact; easy to tune)
+  // Waves state (these will be modulated by difficulty settings)
+  let waveCooldown = 30;
+  let waveActive = false;
+  let waveTimer = 0;
+  let bossSpawnTimer = 0;
 
-  // ===== Sound synthesis (WebAudio) =====
+  // Mobile soft difficulty multiplier: on small screens bosses spawn less often (intervals longer)
+  const MOBILE_SOFT = window.matchMedia('(max-width: 800px)').matches ? 2 : 1; // multiplier applied to spawn intervals
+
+  // ===== Difficulty settings =====
+  // Each preset modifies wave length, cooldown and boss properties.
+  const DIFFICULTY_SETTINGS = {
+    easy:   { waveLength: 8,  bossHpBase: 30, bossSpawnIntervalFactor: 1.6, waveCooldown: 36 },
+    medium: { waveLength: 12, bossHpBase: 45, bossSpawnIntervalFactor: 1.0, waveCooldown: 30 },
+    hard:   { waveLength: 18, bossHpBase: 70, bossSpawnIntervalFactor: 0.6, waveCooldown: 24 }
+  };
+  let difficulty = 'medium'; // default
+
+  function setDifficulty(v){
+    if(!DIFFICULTY_SETTINGS[v]) return;
+    difficulty = v;
+    // if no wave active, refresh cooldown to new difficulty value
+    if(!waveActive){ waveCooldown = DIFFICULTY_SETTINGS[v].waveCooldown; }
+    // visual feedback in console for debugging
+    //console.log('Difficulty set to', v, DIFFICULTY_SETTINGS[v]);
+  }
+  difficultySelect.addEventListener('change', ()=> setDifficulty(difficultySelect.value));
+
+  // ===== WebAudio: create / resume AudioContext ONLY after a user gesture (Start) =====
   class Sfx {
     constructor(){ this.ctx = null; this.muted=false; }
     _ctx(){ if(this.muted) return null; if(!this.ctx){ const C = window.AudioContext||window.webkitAudioContext; if(C) this.ctx = new C(); } return this.ctx; }
@@ -110,9 +141,9 @@
     noise(dur=0.2,lp=1200,vol=0.3){ const c=this._ctx(); if(!c) return; const len=Math.floor(c.sampleRate*dur); const buf=c.createBuffer(1,len,c.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<len;i++){ d[i] = (Math.random()*2-1)*(1 - i/len); } const src=c.createBufferSource(); src.buffer=buf; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=lp; const g=c.createGain(); g.gain.value=vol; src.connect(f).connect(g).connect(c.destination); src.start(); }
   }
   const sfx = new Sfx();
-  window.addEventListener('pointerdown', ()=>sfx.unlock(), {once:true});
+  // IMPORTANT: do not try to unlock AudioContext outside of a user gesture. Only call sfx.unlock() from Start handler.
 
-  // ===== Drawing (UNMODIFIED visuals) =====
+  // ===== Drawing utilities =====
   function drawBacterium(x,y,r,color='#bff',isHarm=false,rotation=0){
     ctx.save();
     ctx.translate(x,y); ctx.rotate(rotation);
@@ -120,7 +151,7 @@
     ctx.beginPath(); ctx.ellipse(0,0,r*1.1,r*0.7,0,0,Math.PI*2);
     ctx.fillStyle = color; ctx.fill();
     ctx.shadowBlur = 0;
-    for(let i=0;i<3;i++){
+    for(let i=0;i<2;i++){
       const ax = (Math.cos(i*2.1+rotation)*r*0.25);
       const ay = (Math.sin(i*1.7+rotation)*r*0.12);
       ctx.beginPath(); ctx.arc(ax,ay,r*0.14,0,Math.PI*2);
@@ -159,23 +190,48 @@
     for(let i=0;i<8;i++){ ctx.beginPath(); ctx.arc(Math.cos(i)*r*0.25, Math.sin(i)*r*0.25, r*0.12,0,Math.PI*2); ctx.fill(); }
     ctx.restore();
   }
+  // Pill drawing - kept simple and consistent with UI
+  function drawPill(x,y,w=26,h=14){
+    ctx.save(); ctx.translate(x,y);
+    const r = h/2; // corner radius
+    ctx.beginPath();
+    ctx.moveTo(-w/2+r,-h/2);
+    ctx.lineTo(w/2-r,-h/2);
+    ctx.arc(w/2-r,0,r,-Math.PI/2,Math.PI/2);
+    ctx.lineTo(-w/2+r,h/2);
+    ctx.arc(-w/2+r,0,r,Math.PI/2,-Math.PI/2);
+    ctx.closePath();
+    // halves
+    ctx.save(); ctx.clip();
+    ctx.fillStyle='rgba(255,80,80,0.95)'; ctx.fillRect(-w/2,-h/2,w/2,h);
+    ctx.fillStyle='rgba(240,240,255,0.95)'; ctx.fillRect(0,-h/2,w/2,h);
+    ctx.restore();
+    // highlight
+    ctx.fillStyle='rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.ellipse(-w*0.15,-h*0.1,w*0.28,h*0.22,0,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth=1.2; ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.stroke();
+    ctx.restore();
+  }
 
-  // ===== Init =====
+  // ===== Init / spawn =====
   function init(){
     player = {x:W()/2, y:H()/2, r:28, gray:0, vx:0, vy:0};
     bacteria = [];
     particles = [];
     pointer = {x:player.x, y:player.y};
     time = 0; spawnTimer = 0; level = 1; score = Math.round(areaFromRadius(player.r)); paused=false; gameover=false;
-    bosses = []; // NEW: allow multiple bosses
+    bosses = [];
+
+    // set pill and timers
+    pill = null; pillTimer = rnd(10,20);
 
     bgElements = [];
     for(let i=0;i<10;i++){ bgElements.push({x:rnd(0,W()), y:rnd(0,H()), r:rnd(40,160), alpha:rnd(0.06,0.18)}); }
 
     flow = {x:0,y:0}; flowTimer = 0; changeFlow();
 
-    // Reset wave state
-    waveCooldown = 30; waveActive = false; waveTimer = 0; bossSpawnTimer = 0;
+    // Waves: set according to difficulty
+    waveCooldown = DIFFICULTY_SETTINGS[difficulty].waveCooldown; waveActive = false; waveTimer = 0; bossSpawnTimer = 0;
 
     updateHud();
     muteBtn.textContent = sfx.muted ? '🔈 Unmute' : '🔇 Mute';
@@ -188,16 +244,20 @@
     bacteria.push({x:rnd(20, W()-20), y:rnd(20, H()-20), r, friendly:isFriendly, harmful:isHarmful, vx:rnd(-30,30)+flow.x, vy:rnd(-20,20)+flow.y, rot:rnd(0,Math.PI*2)});
   }
 
-  // === NEW: spawn a virus boss. Horizontal position: random OR near cursor (50/50). Appears from top. ===
   function spawnVirus(){
+    // spawn boss above the play area, sometimes near pointer
     const nearCursor = Math.random() < 0.5;
     const spawnX = clamp(nearCursor ? (pointer.x + rnd(-60,60)) : rnd(60, W()-60), 60, W()-60);
-    bosses.push({x:spawnX, y:-120, r:80, vy:18, hp:45});
+    const settings = DIFFICULTY_SETTINGS[difficulty];
+    // boss hp depends on difficulty
+    const baseHp = settings.bossHpBase;
+    const hp = Math.round(baseHp + rnd(-6, 12));
+    bosses.push({x:spawnX, y:-120, r:80, vy:18, hp});
   }
 
   function changeFlow(){ flow.x = rnd(-10,10); flow.y = rnd(-6,6); }
 
-  // ORIGINAL helper (first variant) kept for compatibility
+  // Create particles when mass is shed
   function shedPieces(amount){
     let area = areaFromRadius(player.r);
     const target = Math.max(area-amount, Math.PI*minRadius*minRadius);
@@ -218,33 +278,33 @@
   function loop(now){
     const dt = Math.min(0.033, (now - last)/1000);
     last = now;
-    update(dt);
-    render();
+    if(started) { update(dt); render(); }
     requestAnimationFrame(loop);
   }
 
-  // === NEW: handle boss wave lifecycle ===
   function updateWaves(dt){
+    // use current difficulty settings to control wave length, cooldown and spawn frequency
+    const settings = DIFFICULTY_SETTINGS[difficulty];
     if(!waveActive){
       waveCooldown -= dt;
       if(waveCooldown <= 0){
         waveActive = true;
-        waveTimer = WAVE_LENGTH; // a short, intense wave
-        bossSpawnTimer = 0;      // immediate first boss
+        waveTimer = settings.waveLength;
+        bossSpawnTimer = 0;
       }
     } else {
       waveTimer -= dt;
-      // score influence: more score -> shorter interval (toward 2s)
       const t = clamp(score/6000, 0, 1);
-      const target = 4 - 2*t; // from 4s down to 2s
+      const target = 4 - 2*t; // base spawn interval goes from ~4s to ~2s with score
       bossSpawnTimer -= dt;
       if(bossSpawnTimer <= 0){
         spawnVirus();
-        bossSpawnTimer = target + Math.random(); // [target, target+1]
+        // spawn interval modified by mobile softness and difficulty multiplier
+        bossSpawnTimer = (target + Math.random()) * MOBILE_SOFT * settings.bossSpawnIntervalFactor;
       }
       if(waveTimer <= 0){
         waveActive = false;
-        waveCooldown = 30; // next wave in 30s
+        waveCooldown = settings.waveCooldown;
       }
     }
   }
@@ -253,23 +313,23 @@
     time += dt;
     if(paused || gameover) return;
 
-    // Flow change (unchanged)
+    // flow environment
     flowTimer += dt; if(flowTimer > 25){ flowTimer = 0; changeFlow(); }
 
-    // Regular bacteria spawn (unchanged)
+    // spawn small bacteria periodically
     spawnTimer -= dt; if(spawnTimer <= 0){ spawnBacterium(); spawnTimer = Math.max(0.6 - level*0.02, 0.2); }
 
-    // NEW: boss waves drive boss spawns
+    // update boss waves according to difficulty
     updateWaves(dt);
 
-    // Move player toward pointer (unchanged)
+    // player movement toward pointer
     player.vx += (pointer.x - player.x) * 0.12; player.vy += (pointer.y - player.y) * 0.12;
     player.vx *= 0.85; player.vy *= 0.85; player.x += player.vx * dt * 60; player.y += player.vy * dt * 60;
 
-    // Keep inside dish
+    // keep player inside bounds
     const margin = 8; player.x = clamp(player.x, margin, W()-margin); player.y = clamp(player.y, margin, H()-margin);
 
-    // Bacteria update & collisions (unchanged)
+    // small bacteria interactions
     for(let i=bacteria.length-1;i>=0;i--){
       const b = bacteria[i];
       b.rot += dt*0.6; b.x += (b.vx + flow.x) * dt; b.y += (b.vy + flow.y) * dt;
@@ -292,11 +352,10 @@
       }
     }
 
-    // === Bosses update (extended from single boss logic) ===
+    // bosses behavior
     for(let i=bosses.length-1;i>=0;i--){
       const boss = bosses[i];
       boss.y += boss.vy * dt;
-      // occasional spike hazard beneath boss (same feel as original)
       if(Math.random() < 0.02){
         const px = boss.x + rnd(-boss.r*0.5, boss.r*0.5);
         const py = boss.y + boss.r*0.6;
@@ -307,22 +366,46 @@
           sfx.noise(0.18,700,0.35);
         }
       }
-      // collision with player reduces boss hp (unchanged behavior)
       if(Math.hypot(boss.x-player.x,boss.y-player.y) < boss.r + player.r){
         boss.hp -= 1; player.gray = clamp(player.gray + 0.12, 0, 1);
         if(boss.hp <= 0){ score += 1500; bosses.splice(i,1); level++; sfx.tone(900,0.16,'sawtooth'); continue; }
       }
-      // remove if leaves screen
       if(boss.y > H()+200){ bosses.splice(i,1); }
     }
 
-    // particles update (shed pieces)
+    // Pill: spawn timer and pickup behaviour
+    pillTimer -= dt;
+    if(!pill && pillTimer <= 0){
+      // spawn within play area (safe margin)
+      pill = {x:rnd(40,W()-40), y:rnd(40,H()-40), rx:26, ry:14, ttl: rnd(2,6)}; // lifetime 8–14s
+    }
+    if(pill){
+      pill.ttl -= dt; if(pill.ttl <= 0){ pill = null; pillTimer = rnd(22,48); }
+      // pickup detection
+      if(pill && Math.hypot((pill.x - player.x), (pill.y - player.y)) < player.r + Math.max(pill.ry,10)){
+        // effect: kill all harmful entities + reset toxicity
+        player.gray = 0;
+        // remove harmful bacteria
+        for(let i=bacteria.length-1;i>=0;i--){ if(bacteria[i].harmful) bacteria.splice(i,1); }
+        // remove bosses
+        if(bosses.length){ bosses = []; }
+        // sound feedback
+        sfx.tone(660,0.12,'square'); sfx.tone(990,0.10,'square');
+        // particle burst
+        for(let k=0;k<14;k++){
+          particles.push({x:player.x+rnd(-6,6), y:player.y+rnd(-6,6), r:rnd(2,4), vx:rnd(-160,160), vy:rnd(-160,160), life:0, ttl:rnd(0.4,0.9)});
+        }
+        pill = null; pillTimer = rnd(28,60);
+      }
+    }
+
+    // particles physics
     for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.vy += 240 * dt; p.x += p.vx*dt; p.y += p.vy*dt; p.life += dt; if(p.life > p.ttl) particles.splice(i,1); }
 
-    // when toxicity > threshold, player sheds regularly (unchanged)
+    // random mass shedding when toxicity is high
     if(player.gray > 0.5){ if(Math.random() < 0.18*dt*60){ const lose = areaFromRadius(player.r)*0.05; shedPieces(lose); } }
 
-    // score-based level up (unchanged)
+    // level up
     if(score >= level * 1200){ level++; sfx.tone(880,0.12); }
 
     updateHud();
@@ -351,6 +434,9 @@
 
     for(const boss of bosses){ drawVirus(boss.x,boss.y,boss.r); }
 
+    // Pill draw
+    if(pill){ drawPill(pill.x,pill.y,pill.rx,pill.ry); }
+
     drawBacterium(player.x,player.y,player.r,'#c6ebff',false,0);
 
     for(const p of particles){ ctx.fillStyle='rgba(200,180,150,0.95)'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); }
@@ -362,7 +448,7 @@
     ctx.save(); ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.font='12px sans-serif'; ctx.fillText('Petri Dish simulator — cartoon bacteria', 12, h-12); ctx.restore();
   }
 
-  // Game over logic — unchanged except for multiple bosses already handled
+  // Game over handling
   function doGameOver(){
     paused=true; gameover=true;
     const rec = parseInt(localStorage.getItem('petriRecord')||'0',10);
@@ -370,10 +456,10 @@
     if(curr > rec) localStorage.setItem('petriRecord', curr);
     overlay.style.display = 'flex';
     overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🧬Mass: ${curr}<br>🏆Record: ${localStorage.getItem('petriRecord')}</p><div style="margin-top:12px"><button id="restart">Restart</button></div>`;
-    const btn = document.getElementById('restart'); btn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); });
+    const btn = document.getElementById('restart'); btn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); started=true; sfx.unlock(); });
   }
 
-  // helper to shed pieces triggered externally (keep second variant as in original)
+  // Secondary variant of shedPieces kept for compatibility with the original behavior
   function shedPieces(amountArea){
     const area = areaFromRadius(player.r);
     const newArea = Math.max(area - amountArea, Math.PI*minRadius*minRadius);
@@ -392,22 +478,31 @@
   canvas.addEventListener('touchmove', (e)=>{ if(e.touches[0]){ pointer.x = e.touches[0].clientX; pointer.y = e.touches[0].clientY; } }, {passive:true});
   pauseBtn.addEventListener('click', ()=>{ paused=!paused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; });
   stopBtn.addEventListener('click', ()=>{ doGameOver(); });
-  startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); });
+  startBtn.addEventListener('click', ()=>{
+    overlay.style.display='none';
+    init();
+    // Create/resume AudioContext ONLY here — after a user gesture
+    started = true;
+    sfx.unlock();
+  });
 
-  // NEW: Mute toggle — fully suppresses sfx without touching graphics/gameplay
+  // Mute logic
   muteBtn.addEventListener('click', ()=>{
     const next = !sfx.muted;
     sfx.mute(next);
-    if(sfx.ctx){ // if context exists, suspend/resume for battery-friendliness
+    if(sfx.ctx){ // if audio context exists, suspend/resume accordingly
       if(next && sfx.ctx.suspend) sfx.ctx.suspend();
       if(!next && sfx.ctx.resume) sfx.ctx.resume();
     }
-    if(!next) sfx.unlock(); // ensure audio resumes on unmute if needed
+    if(!next) sfx.unlock();
     muteBtn.textContent = next ? '🔈 Unmute' : '🔇 Mute';
   });
 
-  // start
-  init(); requestAnimationFrame(loop);
+  // Difficulty selector initial setup
+  setDifficulty(difficultySelect.value);
+
+  // Start the rendering loop; game logic runs after Start
+  requestAnimationFrame(loop);
 })();
 </script>
 </body>

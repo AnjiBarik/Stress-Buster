@@ -64,6 +64,7 @@
             </button>
             <div class="qr-container">
                 <img id="qr-code" src="img/qr-code.png" alt="QR Code to share the site" class="qr-code">
+                <img id="screenshot-button" src="img/stressbaster1.png" alt="Screenshot of the game" class="qr-code">
             </div>
         </div>
     </main>
@@ -72,7 +73,7 @@
         <p id="game-description">Hover over a game to learn more.</p>
     </footer>
 
-    <script>
+  <script>
         // Canvas background animation
         const canvas = document.getElementById('background-canvas');
         const ctx = canvas.getContext('2d');
@@ -175,44 +176,50 @@
         }
 
         // QR Code Fullscreen Pop-up
-        const qrCode = document.getElementById('qr-code');
-        const body = document.body;
+   function openFullscreenImage(element) {
+    const fullscreenDiv = document.createElement('div');
+    fullscreenDiv.classList.add('fullscreen-qr-overlay');
+    fullscreenDiv.innerHTML = `
+        <img src="${element.src}" alt="${element.alt}" class="fullscreen-qr-image">
+        <button class="close-button">X</button>
+    `;
+    document.body.appendChild(fullscreenDiv);
+    
+    function closeOverlay() {
+        if (document.body.contains(fullscreenDiv)) {
+            document.body.removeChild(fullscreenDiv);
+            window.removeEventListener('popstate', popstateHandler);
+            document.removeEventListener('keydown', escapeHandler);
+            history.replaceState({}, '', window.location.pathname);
+        }
+    }
 
-        qrCode.addEventListener('click', () => {
-            const fullscreenDiv = document.createElement('div');
-            fullscreenDiv.classList.add('fullscreen-qr-overlay');
-            fullscreenDiv.innerHTML = `
-                <img src="${qrCode.src}" alt="QR Code to share the site" class="fullscreen-qr-image">
-                <button class="close-button">X</button>
-            `;
-            body.appendChild(fullscreenDiv);
+    const closeButton = fullscreenDiv.querySelector('.close-button');
+    closeButton.addEventListener('click', closeOverlay);
+    
+    function escapeHandler(e) {
+        if (e.key === "Escape") {
+            closeOverlay();
+        }
+    }
+    document.addEventListener('keydown', escapeHandler);
 
-            const closeButton = fullscreenDiv.querySelector('.close-button');
-            closeButton.addEventListener('click', () => {
-                body.removeChild(fullscreenDiv);
-            });
+    // Handling the Back Button for Mobile Devices
+    history.pushState({ overlayOpen: true }, '', '#overlay-open');
+    function popstateHandler(e) {        
+        if (!e.state || !e.state.overlayOpen) {
+            closeOverlay();
+        }
+    }
+    window.addEventListener('popstate', popstateHandler);
+   }
 
-            // Handle "Escape" key for desktop
-            document.addEventListener('keydown', function escapeHandler(e) {
-                if (e.key === "Escape") {
-                    body.removeChild(fullscreenDiv);
-                    document.removeEventListener('keydown', escapeHandler);
-                }
-            });
+    const qrCode = document.getElementById('qr-code');
+    const screenshotButton = document.getElementById('screenshot-button');
 
-            // Handle "Back" button for mobile (push a state to history)
-            history.pushState({ qrOpen: true }, '', '#qr-open');
-            window.addEventListener('popstate', function popstateHandler(e) {
-                if (!e.state || !e.state.qrOpen) {
-                    const overlay = document.querySelector('.fullscreen-qr-overlay');
-                    if (overlay) {
-                        body.removeChild(overlay);
-                    }
-                    window.removeEventListener('popstate', popstateHandler);
-                }
-            });
-        });
+    qrCode.addEventListener('click', () => openFullscreenImage(qrCode));
+    screenshotButton.addEventListener('click', () => openFullscreenImage(screenshotButton));
 
-    </script>
+  </script>
 </body>
 </html>

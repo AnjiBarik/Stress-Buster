@@ -194,10 +194,26 @@
   canvas.addEventListener('pointermove', e=>{ pointer.x = e.clientX; pointer.y = e.clientY; });
   canvas.addEventListener('touchmove', e=>{ if(e.touches[0]){ pointer.x = e.touches[0].clientX; pointer.y = e.touches[0].clientY; } }, {passive:true});
   pauseBtn.addEventListener('click', ()=>{ paused = !paused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; });
-  stopBtn.addEventListener('click', ()=>{ doGameOver(); });
+  stopBtn.addEventListener('click', ()=>{ enableNavigation(); doGameOver(); });
   muteBtn.addEventListener('click', ()=>{ sfx.mute(!sfx.muted); muteBtn.textContent = sfx.muted ? '🔇 Unmute' : '🔊 Mute'; });
-  startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); });
+  startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); disableNavigation();});
 
+  // A function to disable browser navigation and page reload
+function disableNavigation() {
+  history.pushState(null, null, location.href);
+  window.onpopstate = () => {
+    history.pushState(null, null, location.href);
+  };
+  window.onbeforeunload = () => {
+    return ''; // A non-empty string triggers a confirmation dialog
+  };
+}
+
+// A function to enable browser navigation
+function enableNavigation() {
+  window.onpopstate = null;
+  window.onbeforeunload = null;
+}
   // boot
   init(); requestAnimationFrame(loop);
 })();

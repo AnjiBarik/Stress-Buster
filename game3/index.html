@@ -266,8 +266,25 @@
   canvas.addEventListener('pointermove', e=>{ pointer.x = e.clientX; pointer.y = e.clientY; });
   canvas.addEventListener('touchmove', e=>{ if(e.touches[0]){ pointer.x = e.touches[0].clientX; pointer.y = e.touches[0].clientY; } }, {passive:true});
   pauseBtn.addEventListener('click', ()=>{ paused = !paused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; });
-  stopBtn.addEventListener('click', ()=>{ gameOver(); });
-  startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); });
+  stopBtn.addEventListener('click', ()=>{ gameOver(); enableNavigation(); });
+  startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); disableNavigation(); });
+
+  // A function to disable browser navigation and page reload
+function disableNavigation() {
+  history.pushState(null, null, location.href);
+  window.onpopstate = () => {
+    history.pushState(null, null, location.href);
+  };
+  window.onbeforeunload = () => {
+    return ''; // A non-empty string triggers a confirmation dialog
+  };
+}
+
+// A function to enable browser navigation
+function enableNavigation() {
+  window.onpopstate = null;
+  window.onbeforeunload = null;
+}
 
   difficultySelect.addEventListener('change', ()=>{ currentDiff = difficultySelect.value; 
     // if the wave is active now, we can adjust the remaining time to the new difficulty, but maintain balance

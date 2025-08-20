@@ -9,6 +9,8 @@ Welcome to our little collection of simple, cheerful, and super quick browser ga
 Every game in this repository is a standalone masterpiece of simplicity, built with love and a bit of magic. Each one is a single, ready-to-play HTML file, bundling all its JavaScript and CSS right inside. Just click and play!
 
 We’ve focused on creating a friendly, cartoonish world with a positive atmosphere. No bosses, no enemies (unless you count stress), just pure, simple joy.
+ 
+ <img src="img/stressbaster1.png" alt="Сartoonish world with a positive atmosphere" width="80%">
 
 🎮 The Games
 

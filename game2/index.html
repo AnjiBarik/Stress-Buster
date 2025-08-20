@@ -177,8 +177,8 @@
   function drawVirus(x,y,r){
     ctx.save(); ctx.translate(x,y);
     ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fillStyle='rgba(180,30,30,0.95)'; ctx.fill();
-    for(let i=0;i<18;i++){
-      const ang = i/18*Math.PI*2 + Math.sin(time*0.8+i)*0.06;
+    for(let i=0;i<8;i++){
+      const ang = i/8*Math.PI*2 + Math.sin(time*0.8+i)*0.06;
       const sx = Math.cos(ang)*(r*0.95);
       const sy = Math.sin(ang)*(r*0.95);
       const ex = Math.cos(ang)*(r*1.45);
@@ -187,7 +187,7 @@
       ctx.beginPath(); ctx.arc(ex,ey,4,0,Math.PI*2); ctx.fillStyle='rgba(200,80,80,0.95)'; ctx.fill();
     }
     ctx.fillStyle='rgba(0,0,0,0.06)';
-    for(let i=0;i<8;i++){ ctx.beginPath(); ctx.arc(Math.cos(i)*r*0.25, Math.sin(i)*r*0.25, r*0.12,0,Math.PI*2); ctx.fill(); }
+    //for(let i=0;i<8;i++){ ctx.beginPath(); ctx.arc(Math.cos(i)*r*0.25, Math.sin(i)*r*0.25, r*0.12,0,Math.PI*2); ctx.fill(); }
     ctx.restore();
   }
   // Pill drawing - kept simple and consistent with UI
@@ -323,8 +323,10 @@
     updateWaves(dt);
 
     // player movement toward pointer
-    player.vx += (pointer.x - player.x) * 0.12; player.vy += (pointer.y - player.y) * 0.12;
-    player.vx *= 0.85; player.vy *= 0.85; player.x += player.vx * dt * 60; player.y += player.vy * dt * 60;
+    // player.vx += (pointer.x - player.x) * 0.12; player.vy += (pointer.y - player.y) * 0.12;
+    // player.vx *= 0.85; player.vy *= 0.85; player.x += player.vx * dt * 60; player.y += player.vy * dt * 60;
+    player.vx += (pointer.x - player.x) * 0.15; player.vy += (pointer.y - player.y) * 0.15;
+    player.vx *= 0.92; player.vy *= 0.92; player.x += player.vx * dt * 60; player.y += player.vy * dt * 60;
 
     // keep player inside bounds
     const margin = 8; player.x = clamp(player.x, margin, W()-margin); player.y = clamp(player.y, margin, H()-margin);
@@ -457,6 +459,7 @@
     overlay.style.display = 'flex';
     overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🧬Mass: ${curr}<br>🏆Record: ${localStorage.getItem('petriRecord')}</p><div style="margin-top:12px"><button id="restart">Restart</button></div>`;
     const btn = document.getElementById('restart'); btn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); started=true; sfx.unlock(); });
+    enableNavigation();
   }
 
   // Secondary variant of shedPieces kept for compatibility with the original behavior
@@ -481,10 +484,28 @@
   startBtn.addEventListener('click', ()=>{
     overlay.style.display='none';
     init();
+    disableNavigation();
     // Create/resume AudioContext ONLY here — after a user gesture
     started = true;
     sfx.unlock();
   });
+
+  /// A function to disable browser navigation and page reload
+function disableNavigation() {
+  history.pushState(null, null, location.href);
+  window.onpopstate = () => {
+    history.pushState(null, null, location.href);
+  };
+  window.onbeforeunload = () => {
+    return ''; // A non-empty string triggers a confirmation dialog
+  };
+}
+
+// A function to enable browser navigation
+function enableNavigation() {
+  window.onpopstate = null;
+  window.onbeforeunload = null;
+}
 
   // Mute logic
   muteBtn.addEventListener('click', ()=>{

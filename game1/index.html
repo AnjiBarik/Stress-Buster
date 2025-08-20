@@ -107,6 +107,14 @@
   function ensureAudio(){
     if(muted) return null; 
     if(!actx){ actx = new (window.AudioContext||window.webkitAudioContext)(); }
+    //AudioContext resumed
+    if (actx.state === 'suspended') {
+    actx.resume().then(() => {
+      console.log('AudioContext resumed successfully!');
+    }).catch(e => {
+      console.error('Error resuming AudioContext:', e);
+    });
+  }
     return actx;
   }
   function playTone(freq,duration){
@@ -179,18 +187,29 @@
   function drawFluffy(x,y,r,gray=0){
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.3)';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 40;
+    ctx.filter = 'blur(3px)';
     for(let i=0;i<6;i++){
-      const ang = (i/6)*Math.PI*2;
-      const rr = r*(0.6 + Math.sin(i*1.5+time*0.5)*0.1);
-      const px = x + Math.cos(ang)*r*0.5;
-      const py = y + Math.sin(ang)*r*0.3;
+      const ang = (i/6)*Math.PI*2+ Math.sin(time*0.6+i)*0.12;
+      const rr = r*(0.7 + Math.sin(i*1.7+time*0.9)*0.08 + (i%2?0.12:-0.06))
+      //const rr = r*(0.6 + Math.sin(i*1.5+time*0.5)*0.1);
+      const px = x + Math.cos(ang)*r*0.55;
+      const py = y + Math.sin(ang)*r*0.33;
       const c = Math.floor(255 - 140*gray);
-      ctx.fillStyle = `rgba(${c},${c},${c},0.9)`;
+      ctx.fillStyle = `rgba(${c},${c},${c},0.8)`;
       ctx.beginPath();
       ctx.arc(px,py,rr,0,Math.PI*2);
       ctx.fill();
     }
+    //
+    const c = Math.floor(255 - 150*gray);
+    ctx.fillStyle = `rgba(${c},${c},${c},0.6)`;
+    ctx.beginPath();
+    ctx.ellipse(x,y,r*1.2,r*0.9,0,0,Math.PI*2);
+    ctx.fill();
+
+
+
     ctx.restore();
   }
 
@@ -544,17 +563,19 @@
     ctx.strokeStyle='black';
     ctx.lineWidth=3;
     ctx.beginPath(); ctx.arc(0,t.r*0.2,t.r*0.25,0,Math.PI); ctx.stroke();
-    // Tongue
-    ctx.fillStyle='red';
-    ctx.beginPath(); ctx.arc(0,t.r*0.25,t.r*0.12,0,Math.PI*2); ctx.fill();
+
     ctx.restore();
+    // Tongue
+    // ctx.fillStyle='red';
+    // ctx.beginPath(); ctx.arc(0,t.r*0.25,t.r*0.12,0,Math.PI*2); ctx.fill();
+    // ctx.restore();
 
     // === Cartoon Hands (mittens) ===
-    ctx.save();
-    ctx.fillStyle='lightgray';
-    ctx.beginPath(); ctx.arc(t.x - t.r*1.2, t.y, t.r*0.3,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(t.x + t.r*1.2, t.y, t.r*0.3,0,Math.PI*2); ctx.fill();
-    ctx.restore();
+    // ctx.save();
+    // ctx.fillStyle='lightgray';
+    // ctx.beginPath(); ctx.arc(t.x - t.r*1.2, t.y, t.r*0.3,0,Math.PI*2); ctx.fill();
+    // ctx.beginPath(); ctx.arc(t.x + t.r*1.2, t.y, t.r*0.3,0,Math.PI*2); ctx.fill();
+    // ctx.restore();
 
     // === Debris Particles ===
     for(let p of t.particles){
@@ -584,6 +605,7 @@
     overlay.style.display='flex';
     overlayText.innerHTML = `<h2>Game Over</h2><p>⛅Score: ${score}<br>🏆Record: ${record}</p>`;
     startBtn.textContent='Restart';
+    enableNavigation();
   }
 
   let lastTime=performance.now();
@@ -614,7 +636,25 @@
   startBtn.addEventListener('click', ()=>{
     overlay.style.display='none';
     initGame();
+    disableNavigation();
   });
+
+  /// A function to disable browser navigation and page reload
+function disableNavigation() {
+  history.pushState(null, null, location.href);
+  window.onpopstate = () => {
+    history.pushState(null, null, location.href);
+  };
+  window.onbeforeunload = () => {
+    return ''; // A non-empty string triggers a confirmation dialog
+  };
+}
+
+// A function to enable browser navigation
+function enableNavigation() {
+  window.onpopstate = null;
+  window.onbeforeunload = null;
+}
 
   // Start
   initGame();

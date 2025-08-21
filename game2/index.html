@@ -56,10 +56,10 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   function ratio(){ return window.devicePixelRatio||1; }
-  //function CSS_W(){ return Math.floor(window.innerWidth*0.98); }
-  //function CSS_H(){ return Math.floor(window.innerHeight*0.78); }
-  function CSS_W(){ return Math.floor(window.innerWidth); }
-  function CSS_H(){ return Math.floor(window.innerHeight); }
+  function CSS_W(){ return Math.floor(window.innerWidth*0.98); }
+  function CSS_H(){ return Math.floor(window.innerHeight*0.78); }
+  //function CSS_W(){ return Math.floor(window.innerWidth); }
+  //function CSS_H(){ return Math.floor(window.innerHeight); }
   function W(){ return canvas.width/ratio(); }
   function H(){ return canvas.height/ratio(); }
   function resize(){
@@ -506,22 +506,14 @@ if (pill) {
     overlay.style.display = 'flex';
     overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🧬Mass: ${curr}<br>🏆Record: ${localStorage.getItem('petriRecord')}</p><div style="margin-top:12px"><button id="restart">Restart</button><button id="backBtn">Back</button></div>`;
     const btn = document.getElementById('restart'); btn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); started=true; sfx.unlock(); });    
-  }
-
-  const btn = document.getElementById('restart'); 
-    btn.addEventListener('click', ()=>{
-    overlay.style.display='none'; 
-    init(); 
-    started=true; 
-    sfx.unlock(); 
-});
+  
 
   const backBtn = document.getElementById('backBtn');
     backBtn.addEventListener('click', ()=>{
     enableNavigation();   
     history.back();       
 });
-
+}
   
   function shedPieces(amountArea) {
   const area = areaFromRadius(player.r);
@@ -572,21 +564,60 @@ if (pill) {
   });
 
 // A function to disable browser navigation and page reload
+// function disableNavigation() {
+//   history.pushState(null, null, location.href);
+//   window.onpopstate = () => {
+//     history.pushState(null, null, location.href);
+//   };
+//   window.onbeforeunload = () => {
+//     return ''; // A non-empty string triggers a confirmation dialog
+//   };
+// }
+
+// // A function to enable browser navigation
+// function enableNavigation() {
+//   window.onpopstate = null;
+//   window.onbeforeunload = null;
+// }
+
+// function disableNavigation() {
+//   history.replaceState(null, null, location.href); 
+//   history.pushState(null, null, location.href);    
+
+//   window.onpopstate = (e) => {
+//     history.pushState(null, null, location.href);  
+//   };
+
+//   window.onbeforeunload = () => {
+//     return ''; 
+//   };
+// }
+
+// function enableNavigation() {
+//   window.onpopstate = null;
+//   window.onbeforeunload = null;
+// }
+
 function disableNavigation() {
-  history.pushState(null, null, location.href);
-  window.onpopstate = () => {
-    history.pushState(null, null, location.href);
+  history.replaceState({block:true}, '', location.href);
+
+  window.onpopstate = (e) => {
+    if (e.state && e.state.block) {
+      history.replaceState({block:true}, '', location.href);
+    }
   };
+
   window.onbeforeunload = () => {
-    return ''; // A non-empty string triggers a confirmation dialog
+    return ''; // confirmation dialog 
   };
 }
 
-// A function to enable browser navigation
 function enableNavigation() {
   window.onpopstate = null;
   window.onbeforeunload = null;
 }
+
+
 
   // Mute logic
   muteBtn.addEventListener('click', ()=>{

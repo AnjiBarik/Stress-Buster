@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Petri Dish — Bacteria Game</title>
 <style>  
-  html,body{height:100%;margin:0;background:#111;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif, overscroll-behavior-y: contain;}
-  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center, overscroll-behavior-y: contain;}
+  html,body{height:100%;margin:0;background:#111;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif; touch-action: none;  overflow: hidden; overscroll-behavior-y: contain;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center; touch-action: none;  overflow: hidden; overscroll-behavior-y: contain;}
   canvas{display:block;border-radius:20px}
   .hud{position:fixed;left:16px;top:16px;color:#072a2a;background:rgba(255,255,255,0.9);padding:8px 12px;border-radius:10px;font-weight:700}
   .bar{position:fixed;left:16px;top:64px;width:220px;height:12px;background:#eee;border-radius:8px;overflow:hidden}
@@ -339,8 +339,13 @@
     // player movement toward pointer
     // player.vx += (pointer.x - player.x) * 0.12; player.vy += (pointer.y - player.y) * 0.12;
     // player.vx *= 0.85; player.vy *= 0.85; player.x += player.vx * dt * 60; player.y += player.vy * dt * 60;
-    player.vx += (pointer.x - player.x) * 0.15; player.vy += (pointer.y - player.y) * 0.15;
-    player.vx *= 0.85; player.vy *= 0.85; player.x += player.vx * dt * 30; player.y += player.vy * dt * 30;
+    // player.vx += (pointer.x - player.x) * 0.15; player.vy += (pointer.y - player.y) * 0.15;
+    // player.vx *= 0.85; player.vy *= 0.85; player.x += player.vx * dt * 30; player.y += player.vy * dt * 30;
+    player.vx += (pointer.x-player.x)*0.1;
+    player.vy += (pointer.y-player.y)*0.1;
+    player.vx*=0.85; player.vy*=0.85;
+    player.x+=player.vx*dt*60;
+    player.y+=player.vy*dt*60;
 
     // keep player inside bounds
     const margin = 8; player.x = clamp(player.x, margin, W()-margin); player.y = clamp(player.y, margin, H()-margin);
@@ -493,6 +498,7 @@ if (pill) {
 
   // Game over handling
   function doGameOver(){
+    enableNavigation();
     paused=true; gameover=true;
     const rec = parseInt(localStorage.getItem('petriRecord')||'0',10);
     const curr = Math.round(areaFromRadius(player.r));
@@ -500,7 +506,7 @@ if (pill) {
     overlay.style.display = 'flex';
     overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🧬Mass: ${curr}<br>🏆Record: ${localStorage.getItem('petriRecord')}</p><div style="margin-top:12px"><button id="restart">Restart</button></div>`;
     const btn = document.getElementById('restart'); btn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); started=true; sfx.unlock(); });
-    enableNavigation(); 
+    
   }
   
   function shedPieces(amountArea) {
@@ -544,8 +550,8 @@ if (pill) {
   stopBtn.addEventListener('click', ()=>{ doGameOver(); });
   startBtn.addEventListener('click', ()=>{
     overlay.style.display='none';
-    init();
     disableNavigation();
+    init();    
     // Create/resume AudioContext ONLY here — after a user gesture
     started = true;
     sfx.unlock();

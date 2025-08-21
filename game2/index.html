@@ -504,10 +504,24 @@ if (pill) {
     const curr = Math.round(areaFromRadius(player.r));
     if(curr > rec) localStorage.setItem('petriRecord', curr);
     overlay.style.display = 'flex';
-    overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🧬Mass: ${curr}<br>🏆Record: ${localStorage.getItem('petriRecord')}</p><div style="margin-top:12px"><button id="restart">Restart</button></div>`;
-    const btn = document.getElementById('restart'); btn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); started=true; sfx.unlock(); });
-    
+    overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🧬Mass: ${curr}<br>🏆Record: ${localStorage.getItem('petriRecord')}</p><div style="margin-top:12px"><button id="restart">Restart</button><button id="backBtn">Back</button></div>`;
+    const btn = document.getElementById('restart'); btn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); started=true; sfx.unlock(); });    
   }
+
+  const btn = document.getElementById('restart'); 
+    btn.addEventListener('click', ()=>{
+    overlay.style.display='none'; 
+    init(); 
+    started=true; 
+    sfx.unlock(); 
+});
+
+  const backBtn = document.getElementById('backBtn');
+    backBtn.addEventListener('click', ()=>{
+    enableNavigation();   
+    history.back();       
+});
+
   
   function shedPieces(amountArea) {
   const area = areaFromRadius(player.r);

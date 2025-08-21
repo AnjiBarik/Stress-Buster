@@ -271,21 +271,21 @@
 
   function changeFlow(){ flow.x = rnd(-10,10); flow.y = rnd(-6,6); }
 
-  // Create particles when mass is shed
-  function shedPieces(amount){
-    let area = areaFromRadius(player.r);
-    const target = Math.max(area-amount, Math.PI*minRadius*minRadius);
-    const leftArea = Math.max(target, Math.PI*minRadius*minRadius);
-    const lost = Math.max(0, area - leftArea);
-    if(lost<=0) return;
-    const pieces = Math.min(8, Math.ceil(lost/(Math.PI*6)));
-    for(let i=0;i<pieces;i++){
-      const a = (lost/pieces);
-      const r = Math.max(2, radiusFromArea(a));
-      particles.push({x:player.x + rnd(-player.r,player.r), y:player.y + rnd(-player.r,player.r), r, vx:rnd(-80,80), vy:rnd(-120,-20), life:0, ttl:3});
-    }
-    const newArea = leftArea; player.r = radiusFromArea(newArea);
-  }
+  // Create particles when mass is shed - deleted
+  // function shedPieces(amount){
+  //   let area = areaFromRadius(player.r);
+  //   const target = Math.max(area-amount, Math.PI*minRadius*minRadius);
+  //   const leftArea = Math.max(target, Math.PI*minRadius*minRadius);
+  //   const lost = Math.max(0, area - leftArea);
+  //   if(lost<=0) return;
+  //   const pieces = Math.min(8, Math.ceil(lost/(Math.PI*6)));
+  //   for(let i=0;i<pieces;i++){
+  //     const a = (lost/pieces);
+  //     const r = Math.max(2, radiusFromArea(a));
+  //     particles.push({x:player.x + rnd(-player.r,player.r), y:player.y + rnd(-player.r,player.r), r, vx:rnd(-80,80), vy:rnd(-120,-20), life:0, ttl:3});
+  //   }
+  //   const newArea = leftArea; player.r = radiusFromArea(newArea);
+  // }
 
   // ===== Main loop =====
   let last = performance.now();

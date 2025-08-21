@@ -260,7 +260,13 @@
 
   function drawBackground(){ const dpr = window.devicePixelRatio||1; const W = canvas.width/dpr, H = canvas.height/dpr; const g = ctx.createLinearGradient(0,0,W,H); const base = (time*12)%360; g.addColorStop(0,`hsl(${base|0},90%,88%)`); g.addColorStop(0.33,`hsl(${(base+90)|0},90%,90%)`); g.addColorStop(0.66,`hsl(${(base+180)|0},90%,88%)`); g.addColorStop(1,`hsl(${(base+270)|0},90%,90%)`); ctx.fillStyle = g; ctx.fillRect(0,0,W,H); for(const b of bokeh){ ctx.fillStyle=`hsla(${b.h},70%,${b.l|0}%,${b.a})`; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); } }
 
-  function gameOver(){ paused=true; gameover=true; const rec = parseInt(localStorage.getItem('bubbleRecord')||'0',10); if(score>rec) localStorage.setItem('bubbleRecord', score); overlay.style.display='flex'; overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🍭Score: ${score}<br>🏆Record: ${localStorage.getItem('bubbleRecord')}</p><div style="margin-top:12px"><button id=\"restart\">Restart</button></div>`; document.getElementById('restart').addEventListener('click', ()=>{ overlay.style.display='none'; init(); }); }
+  function gameOver(){ paused=true; gameover=true; const rec = parseInt(localStorage.getItem('bubbleRecord')||'0',10); if(score>rec) localStorage.setItem('bubbleRecord', score); overlay.style.display='flex'; overlay.querySelector('.card').innerHTML = `<h1>Game Over</h1><p class="small">🍭Score: ${score}<br>🏆Record: ${localStorage.getItem('bubbleRecord')}</p><div style="margin-top:12px"><button id=\"restart\">🔄Restart</button><button id="backBtn">👉Back to Menu</button></div>`; document.getElementById('restart').addEventListener('click', ()=>{ overlay.style.display='none'; init(); });
+   const backBtn = document.getElementById('backBtn');
+    backBtn.addEventListener('click', ()=>{
+    enableNavigation();   
+    history.back();       
+  });
+  }
 
   // === Input & UI handlers ===
   canvas.addEventListener('pointermove', e=>{ pointer.x = e.clientX; pointer.y = e.clientY; });
@@ -270,18 +276,20 @@
   stopBtn.addEventListener('click', ()=>{ gameOver(); enableNavigation(); });
   startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; init(); disableNavigation(); });
 
-  // A function to disable browser navigation and page reload
-function disableNavigation() {
-  history.pushState(null, null, location.href);
-  window.onpopstate = () => {
-    history.pushState(null, null, location.href);
+ function disableNavigation() {
+  history.replaceState({block:true}, '', location.href);
+
+  window.onpopstate = (e) => {
+    if (e.state && e.state.block) {
+      history.replaceState({block:true}, '', location.href);
+    }
   };
+
   window.onbeforeunload = () => {
-    return ''; // A non-empty string triggers a confirmation dialog
+    return ''; // confirmation dialog 
   };
 }
 
-// A function to enable browser navigation
 function enableNavigation() {
   window.onpopstate = null;
   window.onbeforeunload = null;

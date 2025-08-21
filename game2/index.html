@@ -56,10 +56,10 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   function ratio(){ return window.devicePixelRatio||1; }
-  function CSS_W(){ return Math.floor(window.innerWidth*0.98); }
-  function CSS_H(){ return Math.floor(window.innerHeight*0.78); }
-  // function CSS_W(){ return Math.floor(window.innerWidth); }
-  // function CSS_H(){ return Math.floor(window.innerHeight); }
+  //function CSS_W(){ return Math.floor(window.innerWidth*0.98); }
+  //function CSS_H(){ return Math.floor(window.innerHeight*0.78); }
+  function CSS_W(){ return Math.floor(window.innerWidth); }
+  function CSS_H(){ return Math.floor(window.innerHeight); }
   function W(){ return canvas.width/ratio(); }
   function H(){ return canvas.height/ratio(); }
   function resize(){

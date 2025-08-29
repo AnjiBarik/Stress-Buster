@@ -17,8 +17,15 @@
 
     <header class="header">
         <div class="logo-container">
-            <img src="img/logo.png" alt="Stress Buster Logo" class="logo">
+          <video id="logoVideo" class="logo" autoplay loop muted playsinline preload="auto">
+           <source src="img/snailmini.mp4" type="video/mp4">
+        Your browser does not support video.
+          </video>
+         <button id="muteButton" class="mute-button"> 🔇 </button>
         </div>
+        <!-- <div class="logo-container">
+            <img src="img/logo.png" alt="Stress Buster Logo" class="logo">
+        </div> -->
         <h1 class="title">Stress Buster</h1>
         <h3 class="title-description">Play Simple Games to Relax</h3>
     </header>
@@ -56,6 +63,12 @@
                     <img class="card-main-image" src="img/game4_main.png" alt="Cosmic Traveler main character">
                 </div>
             </a>
+             <a href="game5/index.html" class="game-card" data-description="Rebel square, introvert ball, and manipulative arrow 🎭🟦🟡➡️.">
+                <div class="card-inner">
+                    <img class="card-background" src="img/game5_bg.png" alt="Rebel square, introvert ball, and manipulative arrow">
+                    <img class="card-main-image" src="img/game5_main.png" alt="Rebel square, introvert ball, and manipulative arrow">
+                </div>
+            </a>
         </div>
 
         <div class="side-panel">
@@ -74,6 +87,20 @@
     </footer>
 
   <script>
+        document.addEventListener('DOMContentLoaded', function() {
+         const video = document.getElementById('logoVideo');
+         const buttonmute = document.getElementById('muteButton');
+
+         buttonmute.addEventListener('click', function() {
+          if (video.muted) {
+            video.muted = false;
+            buttonmute.textContent = '🔊'; // Unmute emoji
+          } else {
+            video.muted = true;
+            buttonmute.textContent = '🔇'; // Mute emoji
+          }
+         });
+        });
         // Canvas background animation
         const canvas = document.getElementById('background-canvas');
         const ctx = canvas.getContext('2d');

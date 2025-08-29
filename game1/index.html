@@ -578,8 +578,18 @@
     const record = localStorage.getItem('cloudRecord')||0;
     overlay.style.display='flex';
     overlayText.innerHTML = `<h2>Game Over</h2><p>⛅Score: ${score}<br>🏆Record: ${record}</p>`;
-    startBtn.textContent='Restart';
+    startBtn.textContent='🔄Restart';
     enableNavigation();
+    const backBtn = document.createElement('button');
+    backBtn.id = 'backBtn';
+    backBtn.textContent = '👉Back to Menu';
+    
+    backBtn.addEventListener('click', () => {
+        history.back(); 
+    });
+    
+    overlay.appendChild(backBtn);  
+    
   }
 
   let lastTime=performance.now();
@@ -614,13 +624,26 @@
   });
 
   /// A function to disable browser navigation and page reload
+// function disableNavigation() {
+//   history.pushState(null, null, location.href);
+//   window.onpopstate = () => {
+//     history.pushState(null, null, location.href);
+//   };
+//   window.onbeforeunload = () => {
+//     return ''; // A non-empty string triggers a confirmation dialog
+//   };
+// }
 function disableNavigation() {
-  history.pushState(null, null, location.href);
-  window.onpopstate = () => {
-    history.pushState(null, null, location.href);
+  history.replaceState({block:true}, '', location.href);
+
+  window.onpopstate = (e) => {
+    if (e.state && e.state.block) {
+      history.replaceState({block:true}, '', location.href);
+    }
   };
+
   window.onbeforeunload = () => {
-    return ''; // A non-empty string triggers a confirmation dialog
+    return ''; // confirmation dialog 
   };
 }
 

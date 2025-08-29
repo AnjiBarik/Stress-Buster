@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squares and Balls Puzzle</title>
+<style>
+  body { 
+    margin:0; 
+    display:flex; 
+    flex-direction:column; 
+    align-items:center; 
+    font-family:sans-serif; 
+    background:#f0f0f0; 
+    color: #333;
+    height: 100vh;
+    transition: background-color 0.3s, color 0.3s;
+    position: relative;
+  }
+  body.dark-theme {
+    background: #222;
+    color: #eee;
+  }
+  #bgCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+  }
+  #gameCanvas { 
+    background:white; 
+    margin-top:10px; 
+    touch-action:none; 
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    transition: background-color 0.3s;
+  }
+  body.dark-theme #gameCanvas {
+    background: #333;
+  }
+  #controls { 
+    margin:10px; 
+    display:flex; 
+    flex-wrap: wrap; 
+    gap:15px; 
+    align-items:center; 
+    justify-content: center;
+  }
+  button { 
+    padding:8px 16px; 
+    border:none; 
+    border-radius:8px; 
+    cursor:pointer; 
+    background:#444; 
+    color:white; 
+    font-size:14px; 
+    transition: background-color 0.3s, transform 0.1s;
+  }
+  button:hover {
+    transform: translateY(-2px);
+  }
+  .bonus-button.used {
+    background-color: #888;
+    cursor: not-allowed;
+  }
+  .bonus-button:not(.used) {
+      background-color: #4CAF50; 
+  }
+  #welcome, #win-screen, #exit-modal { 
+    position:fixed; 
+    inset:0; 
+    background:rgba(0,0,0,0.8); 
+    display:flex; 
+    justify-content:center; 
+    align-items:center; 
+    z-index: 10;
+  }
+  #welcomeContent, #winContent, #exit-content { 
+    background:white; 
+    padding:20px; 
+    border-radius:12px; 
+    max-width:300px; 
+    text-align:center; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  }
+  body.dark-theme #welcomeContent, body.dark-theme #winContent, body.dark-theme #exit-content {
+    background: #444;
+    color: #eee;
+  }
+  #difficulty-select, #theme-toggle {
+    margin: 10px 0;
+  }
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<div id="welcome">
+  <div id="welcomeContent">
+    <h2>Welcome!</h2>
+    <p> The rules are simple: move the squares in the direction of the arrows ➡️ they can push others!
+Your goal is to place a square on a ball of the same color 🎯.
+When they match — the square locks in place, and you score +1 point ✨
+But beware! The layout is random 🎲 — things don’t always line up.
+A bit of luck 🍀, a clever jump 🦘, a twist in direction 🔄 — and you’re back in the game!
+If it’s not working out… hit “new layout” 🔁 and try again!
+</p>
+    <div id="difficulty-select">
+        <p>Choose difficulty:</p>
+        <button id="easyBtn">Easy (3 colors)</button>
+        <button id="superHardBtn">Super Hard (6 colors)</button>
+    </div>
+  </div>
+</div>
+
+<div id="win-screen" style="display: none;">
+  <div id="winContent">
+    <h2>Congratulations!</h2>
+    <p>You have solved the puzzle!</p>
+    <p>Final Score: <span id="finalScore">0</span></p>
+    <p>Total Moves: <span id="finalSteps">0</span></p>
+    <p>Bonuses Used: <span id="finalBonusesUsed">0</span></p>
+    <button id="newLayoutBtn">New Layout</button>
+    <button id="backToMenuBtn">Back to Menu</button>
+  </div>
+</div>
+
+<div id="exit-modal" style="display: none;">
+  <div id="exit-content">
+    <h2>Exit Game</h2>
+    <p>Are you sure you want to exit? You will lose your current progress.</p>
+    <button id="confirmExitBtn">Exit</button>
+    <button id="cancelExitBtn">Cancel</button>
+  </div>
+</div>
+
+<canvas id="gameCanvas" width="400" height="400"></canvas>
+<div id="controls">
+  <button id="themeToggleBtn">☀️</button>
+  <button id="undoBtn">⟲ Undo Move</button>
+  <button id="resetBtn">⟳ New Layout 🎲</button>
+  <button id="jumpBtn" class="bonus-button">Jump</button>
+  <button id="changeDirBtn" class="bonus-button">Change Direction</button>
+  <button id="exitBtn">Exit</button>
+  <span id="score">Score: 0</span>
+  <span id="steps">Moves: 0</span>
+</div>
+<script>
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+const bgCanvas = document.getElementById('bgCanvas');
+const bgCtx = bgCanvas.getContext('2d');
+
+const gridSize=10;
+const cellSize=40;
+canvas.width=gridSize*cellSize;
+canvas.height=gridSize*cellSize;
+
+const COLORS_EASY=["#f66","#6f6","#f93"];
+const COLORS_SUPER_HARD=["#FF5733","#0059B2","#33FF57","#FFC300","#9933FF","#33FFFF"];
+const PIECES_PER_COLOR=3;
+const MIXED_COUNT=3;
+
+let squares=[];
+let balls=[];
+let score=0;
+let steps=0;
+let history=[];
+let jumpBonusUses = 1;
+let changeDirBonusUses = 1;
+let selectedSquare = null;
+let changedDirectionSquare = null;
+let currentColors = COLORS_EASY;
+
+// Initializing AudioContext to create sounds
+let audioContext = null;
+
+// Function to initialize AudioContext after user action
+function initAudioContext() {
+    if (audioContext) return;
+    try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+        console.warn("Web Audio API is not supported in this browser. Sound effects will be disabled.");
+    }
+}
+
+// Function for creating and playing sound
+function playSound(type) {
+    if (!audioContext) return;
+
+    let oscillator = audioContext.createOscillator();
+    let gainNode = audioContext.createGain();
+    
+    // Setting up the oscillator depending on the sound type
+    switch (type) {
+        case 'fix':
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 500;
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5);
+            break;
+        case 'invalid':
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.value = 100;
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3);
+            break;
+        case 'jump':
+            oscillator.type = 'triangle';
+            oscillator.frequency.value = 800;
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.4, audioContext.currentTime + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3);
+            break;
+        case 'turn':
+            oscillator.type = 'square';
+            oscillator.frequency.value = 440;
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+            break;
+        case 'push':
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 200;
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+            break;
+    }
+
+    // Connection and playback
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5); // Stop sound after 0.5 seconds
+}
+
+// Helper functions
+function randInt(n){return Math.floor(Math.random()*n);}
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){let j=randInt(i+1);[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;}
+
+// Function to draw the background pattern
+function drawBackground() {
+    bgCanvas.width = window.innerWidth;
+    bgCanvas.height = window.innerHeight;
+    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+    const isDark = document.body.classList.contains('dark-theme');
+    const shapeCount = 50;
+
+    for (let i = 0; i < shapeCount; i++) {
+        const x = Math.random() * bgCanvas.width;
+        const y = Math.random() * bgCanvas.height;
+        const size = Math.random() * 80 + 20;
+        const alpha = Math.random() * 0.2 + 0.1;
+
+        if (Math.random() > 0.5) { // Draw a circle
+            bgCtx.fillStyle = isDark ? `rgba(255, 255, 255, ${alpha})` : `rgba(0, 0, 0, ${alpha})`;
+            bgCtx.beginPath();
+            bgCtx.arc(x, y, size / 2, 0, Math.PI * 2);
+            bgCtx.fill();
+        } else { // Draw a square
+            bgCtx.fillStyle = isDark ? `rgba(255, 255, 255, ${alpha})` : `rgba(0, 0, 0, ${alpha})`;
+            bgCtx.fillRect(x - size / 2, y - size / 2, size, size);
+        }
+    }
+}
+
+// Function to create game layout
+function createLayout(){
+  squares=[]; balls=[];
+  let occupied=new Set();
+  let colorLines = new Map();
+
+  // 1. Create balls based on the selected difficulty
+  for(let c=0;c<currentColors.length;c++){
+    for(let k=0;k<PIECES_PER_COLOR;k++){
+      let x,y;
+      do{ x=randInt(gridSize); y=randInt(gridSize);}while(occupied.has(x+","+y));
+      occupied.add(x+","+y);
+      balls.push({x,y,color:currentColors[c]});
+    }
+  }
+
+  // 2. Create squares, each on the same line as its ball
+  let originalPositions = [];
+  for (let i = 0; i < balls.length; i++) {
+      const b = balls[i];
+      let x, y, dir;
+      let posFound = false;
+      let attempts = 0;
+      do {
+          if (Math.random() < 0.5) { // same row
+              y = b.y;
+              if (colorLines.has(b.color) && colorLines.get(b.color).has("h"+y)) {
+                  x = randInt(gridSize);
+                  y = randInt(gridSize);
+                  dir = (x < b.x) ? "right" : "left";
+              } else {
+                  do { x = randInt(gridSize); } while (x === b.y); 
+                  dir = (x < b.x) ? "right" : "left";
+              }
+          } else { // same column
+              x = b.x;
+              if (colorLines.has(b.color) && colorLines.get(b.color).has("v"+x)) {
+                   x = randInt(gridSize);
+                   y = randInt(gridSize);
+                   dir = (y < b.y) ? "down" : "up";
+              } else {
+                do { y = randInt(gridSize); } while (y === b.x); 
+                dir = (y < b.y) ? "down" : "up";
+              }
+          }
+          if (!occupied.has(x + "," + y) && (x !== b.x || y !== b.y)) {
+              posFound = true;
+          }
+          attempts++;
+      } while (!posFound && attempts < 100);
+      
+      if (posFound) {
+          occupied.add(x + "," + y);
+          let key = (dir === "up" || dir === "down") ? "v"+x : "h"+y;
+          if (!colorLines.has(b.color)) colorLines.set(b.color, new Set());
+          colorLines.get(b.color).add(key);
+          originalPositions.push({ x, y, color: b.color, dir, fixed: false, target: b });
+      }
+  }
+  squares = originalPositions;
+
+  // 3. Shift "tricky" squares
+  let trickySquaresIndices = shuffle(Array.from({length: squares.length}, (_, i) => i)).slice(0, MIXED_COUNT);
+  trickySquaresIndices.forEach(index => {
+      const s = squares[index];
+      let newX = s.x;
+      let newY = s.y;
+      let posFound = false;
+      let attempts = 0;
+      
+      do {
+          if (s.dir === "up" || s.dir === "down") {
+              newX = s.x + (Math.random() < 0.5 ? -1 : 1);
+              newY = s.y;
+          } else {
+              newY = s.y + (Math.random() < 0.5 ? -1 : 1);
+              newX = s.x;
+          }
+          if (newX >= 0 && newX < gridSize && newY >= 0 && newY < gridSize && !occupied.has(newX + "," + newY)) {
+            // Check for intersection with other vectors
+            let hasIntersection = false;
+            squares.forEach(otherS => {
+                if (otherS !== s) {
+                    if (s.dir === "up" || s.dir === "down") {
+                        if (otherS.dir === "left" || otherS.dir === "right") {
+                            if (otherS.y === s.y && (otherS.x > newX && otherS.x < s.x || otherS.x < newX && otherS.x > s.x)) {
+                                hasIntersection = true;
+                            }
+                        }
+                    } else { 
+                         if (otherS.dir === "up" || otherS.dir === "down") {
+                            if (otherS.x === s.x && (otherS.y > newY && otherS.y < s.y || otherS.y < newY && otherS.y > s.y)) {
+                                hasIntersection = true;
+                            }
+                        }
+                    }
+                }
+            });
+            if (hasIntersection) {
+                posFound = true;
+            }
+          }
+          attempts++;
+      } while (!posFound && attempts < 100);
+
+      if (posFound) {
+          occupied.delete(s.x + "," + s.y);
+          s.x = newX;
+          s.y = newY;
+          occupied.add(s.x + "," + s.y);
+      }
+  });
+}
+
+// Draw function
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  
+  // Grid
+  ctx.strokeStyle="#ccc";
+  if(document.body.classList.contains('dark-theme')) ctx.strokeStyle="#555";
+  for(let i=0;i<=gridSize;i++){
+    ctx.beginPath();ctx.moveTo(i*cellSize,0);ctx.lineTo(i*cellSize,canvas.height);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,i*cellSize);ctx.lineTo(canvas.width,i*cellSize);ctx.stroke();
+  }
+
+  // Balls
+  balls.forEach(b=>{
+    ctx.fillStyle=b.color;
+    ctx.beginPath();
+    ctx.arc(b.x*cellSize+cellSize/2,b.y*cellSize+cellSize/2,cellSize/3,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  // Squares
+  squares.forEach(s=>{
+    ctx.fillStyle=s.color;
+    ctx.globalAlpha=s.fixed?0.5:1;
+    ctx.fillRect(s.x*cellSize+2,s.y*cellSize+2,cellSize-4,cellSize-4);
+    ctx.globalAlpha=1;
+    ctx.fillStyle=document.body.classList.contains('dark-theme') ? "#333" : "white";
+    ctx.beginPath();
+    let cx=s.x*cellSize+cellSize/2, cy=s.y*cellSize+cellSize/2;
+    let d=cellSize/4;
+    if(s.dir=="up"){ctx.moveTo(cx,cy-d);ctx.lineTo(cx-d,cy+d);ctx.lineTo(cx+d,cy+d);} 
+    if(s.dir=="down"){ctx.moveTo(cx,cy+d);ctx.lineTo(cx-d,cy-d);ctx.lineTo(cx+d,cy-d);} 
+    if(s.dir=="left"){ctx.moveTo(cx-d,cy);ctx.lineTo(cx+d,cy-d);ctx.lineTo(cx+d,cy+d);} 
+    if(s.dir=="right"){ctx.moveTo(cx+d,cy);ctx.lineTo(cx-d,cy-d);ctx.lineTo(cx-d,cy+d);} 
+    ctx.closePath();ctx.fill();
+  });
+
+  // Draw selected square border
+  if (selectedSquare) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      if (document.body.classList.contains('dark-theme')) ctx.strokeStyle = '#eee';
+      ctx.strokeRect(selectedSquare.x * cellSize + 1, selectedSquare.y * cellSize + 1, cellSize - 2, cellSize - 2);
+  }
+
+  document.getElementById('score').innerText="Score: "+score;
+  document.getElementById('steps').innerText="Moves: "+steps;
+  
+  document.getElementById('jumpBtn').innerText = `Jump (${jumpBonusUses})`;
+  document.getElementById('changeDirBtn').innerText = `Change Direction (${changeDirBonusUses})`;
+
+  document.getElementById('jumpBtn').disabled = jumpBonusUses <= 0;
+  document.getElementById('jumpBtn').classList.toggle('used', jumpBonusUses <= 0);
+  document.getElementById('changeDirBtn').disabled = changeDirBonusUses <= 0;
+  document.getElementById('changeDirBtn').classList.toggle('used', changeDirBonusUses <= 0);
+}
+
+// Function to check for win condition
+function checkWin(){
+    if(squares.every(s => s.fixed)){
+        winGame();
+    }
+}
+
+// Function to handle win state
+function winGame(){
+    const bonusesUsed = (1 - jumpBonusUses) + (1 - changeDirBonusUses); 
+    document.getElementById('finalScore').innerText = score;
+    document.getElementById('finalSteps').innerText = steps;
+    document.getElementById('finalBonusesUsed').innerText = bonusesUsed;
+    document.getElementById('win-screen').style.display = 'flex';
+    
+    // Grant bonus for next game
+    jumpBonusUses++;
+    changeDirBonusUses++;
+}
+
+// Function to handle square movement
+function stepSquare(s){
+  if(s.fixed) {
+    playSound('invalid'); 
+    return false;
+  }
+
+  let dx=0,dy=0;
+  if(s.dir=="up")dy=-1;
+  if(s.dir=="down")dy=1;
+  if(s.dir=="left")dx=-1;
+  if(s.dir=="right")dx=1;
+
+  let nx=s.x+dx, ny=s.y+dy;
+
+  if(nx<0||ny<0||nx>=gridSize||ny>=gridSize) {
+    playSound('invalid'); 
+    return false;
+  }
+
+  let target=squares.find(o=>o.x==nx&&o.y==ny);
+  
+  if(target){ 
+    let chain = [];
+    let current = s;
+    let currentX = s.x;
+    let currentY = s.y;
+    while (current) {
+        if (current.fixed) {
+          playSound('invalid'); 
+          return false; 
+        }
+        chain.push(current);
+        currentX += dx;
+        currentY += dy;
+        current = squares.find(o => o.x === currentX && o.y === currentY);
+    }
+    
+    if (currentX < 0 || currentY < 0 || currentX >= gridSize || currentY >= gridSize) {
+      playSound('invalid'); 
+      return false;
+    }
+
+    for(let i = chain.length - 1; i >= 0; i--){
+        let chainSquare = chain[i];
+        chainSquare.x += dx;
+        chainSquare.y += dy;
+        steps++;
+        
+        let b = balls.find(o => o.x === chainSquare.x && o.y === chainSquare.y && o.color === chainSquare.color);
+        if(b){
+            chainSquare.fixed = true;
+            score++;
+            playSound('fix'); 
+        } else {
+            playSound('push'); 
+        }
+    }
+    return true;
+  } else {
+    s.x=nx; s.y=ny;
+    steps++;
+    let b=balls.find(o=>o.x==s.x&&o.y==s.y&&o.color==s.color);
+    if(b){ 
+      s.fixed=true; 
+      score++; 
+      playSound('fix'); 
+    }
+    return true;
+  }
+}
+
+// Function to handle Jump Over bonus
+function jumpOver(s) {
+    if (s.fixed || jumpBonusUses <= 0) return;
+
+    let dx=0,dy=0;
+    if(s.dir=="up")dy=-1;
+    if(s.dir=="down")dy=1;
+    if(s.dir=="left")dx=-1;
+    if(s.dir=="right")dx=1;
+
+    let nx = s.x + 2 * dx;
+    let ny = s.y + 2 * dy;
+
+    if(nx<0||ny<0||nx>=gridSize||ny>=gridSize) {
+      playSound('invalid'); 
+      return;
+    }
+
+    let target = squares.find(o => o.x === s.x + dx && o.y === s.y + dy);
+    let jumpTarget = squares.find(o => o.x === nx && o.y === ny);
+
+    if (target && !jumpTarget) {
+        history.push(JSON.stringify({squares, score, steps, jumpBonusUses, changeDirBonusUses, changedDirectionSquare}));
+        s.x = nx;
+        s.y = ny;
+        steps++;
+        score--;
+        jumpBonusUses--;
+        playSound('jump'); 
+
+        let b = balls.find(o => o.x === s.x && o.y === s.y && o.color === s.color);
+        if(b){
+            s.fixed = true;
+            score++;
+            playSound('fix'); 
+        }
+        draw();
+        checkWin();
+    } else {
+      playSound('invalid'); 
+    }
+}
+
+// Function to handle Change Direction bonus
+function changeDirection(s) {
+    if (s.fixed || changeDirBonusUses <= 0) return;
+    
+    // Cycle through directions
+    if (s.dir === "up") s.dir = "right";
+    else if (s.dir === "right") s.dir = "down";
+    else if (s.dir === "down") s.dir = "left";
+    else if (s.dir === "left") s.dir = "up";
+    
+    // Mark the square whose direction was changed
+    changedDirectionSquare = s;
+    playSound('turn'); 
+
+    draw();
+}
+
+canvas.addEventListener('click',e=>{
+  initAudioContext();
+  const rect=canvas.getBoundingClientRect();
+  let x=Math.floor((e.clientX-rect.left)/cellSize);
+  let y=Math.floor((e.clientY-rect.top)/cellSize);
+  let s=squares.find(o=>o.x==x&&o.y==y);
+  
+  if(s){
+      selectedSquare = s;
+      draw();
+  } else {
+      selectedSquare = null;
+      draw();
+  }
+  
+  // If a square is clicked and it's not fixed, try to move it
+  if(s && !s.fixed){ 
+    // Check if this is the square with the changed direction
+    if (s === changedDirectionSquare) {
+        // This is where the bonus is "consumed"
+        score--;
+        changeDirBonusUses--;
+        changedDirectionSquare = null; // Reset the changed square
+    }
+    
+    history.push(JSON.stringify({squares,score,steps, jumpBonusUses, changeDirBonusUses, changedDirectionSquare})); 
+    stepSquare(s); 
+    draw(); 
+    checkWin();
+  }
+});
+
+document.getElementById('undoBtn').onclick=()=>{
+  initAudioContext();
+  if(history.length>0){ 
+    let state=JSON.parse(history.pop()); 
+    squares=state.squares;
+    score=state.score;
+    steps=state.steps;
+    jumpBonusUses = state.jumpBonusUses;
+    changeDirBonusUses = state.changeDirBonusUses;
+    changedDirectionSquare = state.changedDirectionSquare; 
+    
+    draw(); 
+  }
+};
+
+document.getElementById('resetBtn').onclick=()=>{ 
+  initAudioContext();
+  history=[];
+  score=0;
+  steps=0;
+  changedDirectionSquare = null;
+  createLayout();
+  draw(); 
+};
+
+document.getElementById('newLayoutBtn').onclick=()=>{
+    initAudioContext();
+    document.getElementById('win-screen').style.display = 'none';
+    history=[];
+    score=0;
+    steps=0;
+    changedDirectionSquare = null;
+    createLayout();
+    draw();
+};
+
+document.getElementById('backToMenuBtn').onclick=()=>{
+    initAudioContext();
+    document.getElementById('win-screen').style.display = 'none';
+    document.getElementById('welcome').style.display = 'flex';
+    score=0;
+    steps=0;
+    history=[];
+    jumpBonusUses = 1;
+    changeDirBonusUses = 1;
+    changedDirectionSquare = null;
+    draw();
+};
+
+// Toggle theme
+document.getElementById('themeToggleBtn').onclick = () => {
+    initAudioContext();
+    document.body.classList.toggle('dark-theme');
+    const themeBtn = document.getElementById('themeToggleBtn');
+    if (document.body.classList.contains('dark-theme')) {
+        themeBtn.innerText = '🌙';
+    } else {
+        themeBtn.innerText = '☀️';
+    }
+    draw(); 
+    drawBackground();
+};
+
+// Difficulty selection buttons
+document.getElementById('easyBtn').onclick = () => {
+    initAudioContext();
+    currentColors = COLORS_EASY;
+    jumpBonusUses = 1;
+    changeDirBonusUses = 1;
+    document.getElementById('welcome').style.display = 'none';
+    score=0;
+    steps=0;
+    history=[];
+    changedDirectionSquare = null;
+    createLayout();
+    draw();
+};
+
+document.getElementById('superHardBtn').onclick = () => {
+    initAudioContext();
+    currentColors = COLORS_SUPER_HARD;
+    jumpBonusUses = 3;
+    changeDirBonusUses = 3;
+    document.getElementById('welcome').style.display = 'none';
+    score=0;
+    steps=0;
+    history=[];
+    changedDirectionSquare = null;
+    createLayout();
+    draw();
+};
+
+document.getElementById('jumpBtn').onclick = () => {
+    initAudioContext();
+    if (selectedSquare && jumpBonusUses > 0) {
+        jumpOver(selectedSquare);
+    } else {
+      playSound('invalid'); 
+    }
+};
+
+document.getElementById('changeDirBtn').onclick = () => {
+    initAudioContext();
+    if (selectedSquare && changeDirBonusUses > 0) {
+        changeDirection(selectedSquare);
+    } else {
+      playSound('invalid'); 
+    }
+};
+
+// New Exit button functionality
+document.getElementById('exitBtn').onclick = () => {
+    initAudioContext();
+    document.getElementById('exit-modal').style.display = 'flex';
+};
+
+document.getElementById('confirmExitBtn').onclick = () => {
+    window.history.back(); // Go back in browser history
+};
+
+document.getElementById('cancelExitBtn').onclick = () => {
+    document.getElementById('exit-modal').style.display = 'none';
+};
+
+// Initial setup to set the correct theme button emoji
+document.getElementById('themeToggleBtn').innerText = '☀️';
+
+// Initial background draw
+window.onload = () => {
+    drawBackground();
+};
+window.onresize = drawBackground;
+
+</script>
+</body>
+</html>

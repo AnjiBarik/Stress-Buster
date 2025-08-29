@@ -580,16 +580,16 @@
     overlayText.innerHTML = `<h2>Game Over</h2><p>⛅Score: ${score}<br>🏆Record: ${record}</p>`;
     startBtn.textContent='🔄Restart';
     enableNavigation();
-    const backBtn = document.createElement('button');
-    backBtn.id = 'backBtn';
-    backBtn.textContent = '👉Back to Menu';
-    
-    backBtn.addEventListener('click', () => {
-        history.back(); 
-    });
-    
-    overlay.appendChild(backBtn);  
-    
+    let backBtn = document.getElementById('backBtn');
+    if (!backBtn) { 
+        backBtn = document.createElement('button');
+        backBtn.id = 'backBtn';
+        backBtn.textContent = '👉Back to Menu';
+        backBtn.addEventListener('click', () => {
+            history.back(); 
+        });
+        overlay.appendChild(backBtn);
+    }    
   }
 
   let lastTime=performance.now();

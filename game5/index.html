@@ -121,6 +121,7 @@ If it’s not working out… hit “new layout” 🔁 and try again!
     <p>Final Score: <span id="finalScore">0</span></p>
     <p>Total Moves: <span id="finalSteps">0</span></p>
     <p>Bonuses Used: <span id="finalBonusesUsed">0</span></p>
+    <p id="bonusMessageEn"></p>    
     <button id="newLayoutBtn">New Layout</button>
     <button id="backToMenuBtn">Back to Menu</button>
   </div>
@@ -451,11 +452,21 @@ function winGame(){
     document.getElementById('finalScore').innerText = score;
     document.getElementById('finalSteps').innerText = steps;
     document.getElementById('finalBonusesUsed').innerText = bonusesUsed;
-    document.getElementById('win-screen').style.display = 'flex';
-    
     // Grant bonus for next game
-    jumpBonusUses++;
-    changeDirBonusUses++;
+    let bonusCount = 0;
+    if (currentColors === COLORS_EASY) {
+        bonusCount = 1;
+        jumpBonusUses++;
+        changeDirBonusUses++;
+    } else {
+        bonusCount = 3;
+        jumpBonusUses += 3;
+        changeDirBonusUses += 3;
+    }
+    document.getElementById('bonusMessageEn').innerText = `You have been awarded ${bonusCount} bonus for the next game!`;
+    
+    document.getElementById('win-screen').style.display = 'flex';  
+    
 }
 
 // Function to handle square movement

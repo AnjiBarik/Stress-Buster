@@ -14,6 +14,7 @@
     background:#f0f0f0; 
     color: #333;
     height: 100vh;
+    overflow-x: hidden;
     transition: background-color 0.3s, color 0.3s;
     position: relative;
   }
@@ -36,26 +37,31 @@
     border-radius: 12px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     transition: background-color 0.3s;
+    width: 90vw;
+    height: 90vw;
+    max-width: 400px;
+    max-height: 400px;
   }
   body.dark-theme #gameCanvas {
     background: #333;
   }
   #controls { 
-    margin:10px; 
+    margin: 8px 0; 
     display:flex; 
     flex-wrap: wrap; 
-    gap:15px; 
+    gap: 8px; 
     align-items:center; 
     justify-content: center;
+    font-size: 12px;
   }
   button { 
-    padding:8px 16px; 
+    padding: 6px 12px; 
     border:none; 
     border-radius:8px; 
     cursor:pointer; 
     background:#444; 
     color:white; 
-    font-size:14px; 
+    font-size:12px; 
     transition: background-color 0.3s, transform 0.1s;
   }
   button:hover {
@@ -79,9 +85,9 @@
   }
   #welcomeContent, #winContent, #exit-content { 
     background:white; 
-    padding:20px; 
+    padding:15px; 
     border-radius:12px; 
-    max-width:300px; 
+    max-width:280px; 
     text-align:center; 
     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
   }
@@ -90,7 +96,41 @@
     color: #eee;
   }
   #difficulty-select, #theme-toggle {
-    margin: 10px 0;
+    margin: 8px 0;
+  }
+  /* Rules Block */
+  #rules-block {
+    background: white;
+    padding: 10px;
+    border-radius: 12px;
+    margin: 8px;
+    max-width: 400px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    text-align: left;
+    font-size: 12px;
+  }
+  body.dark-theme #rules-block {
+    background: #333;
+    color: #eee;
+  }
+  #rules-block h3 {
+    text-align: center;
+    margin-top: 0;
+    font-size: 14px;
+  }
+  #rules-block ul {
+    list-style-type: disc;
+    padding-left: 15px;
+    margin: 5px 0;
+  }
+  #rules-block li {
+    margin-bottom: 4px;
+  }
+  #rules-block .good-luck {
+    text-align: center;
+    font-style: italic;
+    font-weight: bold;
+    margin-top: 10px;
   }
 </style>
 </head>
@@ -99,13 +139,7 @@
 <div id="welcome">
   <div id="welcomeContent">
     <h2>Welcome!</h2>
-    <p> The rules are simple: move the squares in the direction of the arrows ➡️ they can push others!
-Your goal is to place a square on a ball of the same color 🎯.
-When they match — the square locks in place, and you score +1 point ✨
-But beware! The layout is random 🎲 — things don’t always line up.
-A bit of luck 🍀, a clever jump 🦘, a twist in direction 🔄 — and you’re back in the game!
-If it’s not working out… hit “new layout” 🔁 and try again!
-</p>
+    <p>The rules are simple: move the squares in the direction of the arrow. They can push others. The goal is to place a square on a ball of the same color. When you do, the square becomes fixed and you get +1 point.</p>
     <div id="difficulty-select">
         <p>Choose difficulty:</p>
         <button id="easyBtn">Easy (3 colors)</button>
@@ -121,7 +155,8 @@ If it’s not working out… hit “new layout” 🔁 and try again!
     <p>Final Score: <span id="finalScore">0</span></p>
     <p>Total Moves: <span id="finalSteps">0</span></p>
     <p>Bonuses Used: <span id="finalBonusesUsed">0</span></p>
-    <p id="bonusMessageEn"></p>    
+    <p id="bonusMessageEn"></p>
+    <p id="bonusMessageRu"></p>
     <button id="newLayoutBtn">New Layout</button>
     <button id="backToMenuBtn">Back to Menu</button>
   </div>
@@ -136,17 +171,31 @@ If it’s not working out… hit “new layout” 🔁 and try again!
   </div>
 </div>
 
-<canvas id="gameCanvas" width="400" height="400"></canvas>
+<canvas id="gameCanvas"></canvas>
 <div id="controls">
   <button id="themeToggleBtn">☀️</button>
   <button id="undoBtn">⟲ Undo Move</button>
-  <button id="resetBtn">⟳ New Layout 🎲</button>
+  <button id="resetBtn">⟳ New Layout</button>
   <button id="jumpBtn" class="bonus-button">Jump</button>
   <button id="changeDirBtn" class="bonus-button">Change Direction</button>
   <button id="exitBtn">Exit</button>
   <span id="score">Score: 0</span>
   <span id="steps">Moves: 0</span>
 </div>
+
+<!-- Brief game rules block -->
+<div id="rules-block">
+  <h3>Rules</h3>
+  <ul>
+    <li>Move squares with arrows to matching colored balls.</li>
+    <li>Squares can push other non-fixed squares.</li>
+    <li>**Jump:** Skips one square.</li>
+    <li>**Change Direction:** Changes a square's direction; bonus consumed on the first move.</li>
+    <li>Solve to earn bonus moves for the next game.</li>
+  </ul>
+  <p class="good-luck">Good luck!</p>
+</div>
+
 <script>
 const canvas=document.getElementById('gameCanvas');
 const ctx=canvas.getContext('2d');
@@ -154,12 +203,10 @@ const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 
 const gridSize=10;
-const cellSize=40;
-canvas.width=gridSize*cellSize;
-canvas.height=gridSize*cellSize;
+let cellSize;
 
 const COLORS_EASY=["#f66","#6f6","#f93"];
-const COLORS_SUPER_HARD=["#FF5733","#0059B2","#33FF57","#FFC300","#9933FF","#33FFFF"];
+const COLORS_SUPER_HARD=["#FF5733","#0059B2","#33FF57","#FFC300","#FF33A8","#33FFFF"];
 const PIECES_PER_COLOR=3;
 const MIXED_COUNT=3;
 
@@ -174,10 +221,10 @@ let selectedSquare = null;
 let changedDirectionSquare = null;
 let currentColors = COLORS_EASY;
 
-// Initializing AudioContext to create sounds
+// Initializing AudioContext for sound creation
 let audioContext = null;
 
-// Function to initialize AudioContext after user action
+// Function to initialize AudioContext after a user action
 function initAudioContext() {
     if (audioContext) return;
     try {
@@ -187,14 +234,14 @@ function initAudioContext() {
     }
 }
 
-// Function for creating and playing sound
+// Function to create and play a sound
 function playSound(type) {
     if (!audioContext) return;
 
     let oscillator = audioContext.createOscillator();
     let gainNode = audioContext.createGain();
     
-    // Setting up the oscillator depending on the sound type
+    // Oscillator setup based on sound type
     switch (type) {
         case 'fix':
             oscillator.type = 'sine';
@@ -234,7 +281,7 @@ function playSound(type) {
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
     oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5); // Stop sound after 0.5 seconds
+    oscillator.stop(audioContext.currentTime + 0.5); // Stop the sound after 0.5 seconds
 }
 
 // Helper functions
@@ -266,6 +313,16 @@ function drawBackground() {
             bgCtx.fillRect(x - size / 2, y - size / 2, size, size);
         }
     }
+}
+
+// Function to set canvas size and cell size
+function setCanvasSize() {
+    const gameCanvas = document.getElementById('gameCanvas');
+    const size = Math.min(window.innerWidth * 0.9, window.innerHeight * 0.9, 400);
+    gameCanvas.width = size;
+    gameCanvas.height = size;
+    cellSize = gameCanvas.width / gridSize;
+    draw();
 }
 
 // Function to create game layout
@@ -452,7 +509,8 @@ function winGame(){
     document.getElementById('finalScore').innerText = score;
     document.getElementById('finalSteps').innerText = steps;
     document.getElementById('finalBonusesUsed').innerText = bonusesUsed;
-    // Grant bonus for next game
+    
+    // Changed: Update bonus message based on difficulty
     let bonusCount = 0;
     if (currentColors === COLORS_EASY) {
         bonusCount = 1;
@@ -464,15 +522,15 @@ function winGame(){
         changeDirBonusUses += 3;
     }
     document.getElementById('bonusMessageEn').innerText = `You have been awarded ${bonusCount} bonus for the next game!`;
-    
-    document.getElementById('win-screen').style.display = 'flex';  
-    
+    document.getElementById('bonusMessageRu').innerText = `You have been awarded ${bonusCount} bonus for the next game!`;
+
+    document.getElementById('win-screen').style.display = 'flex';
 }
 
 // Function to handle square movement
 function stepSquare(s){
   if(s.fixed) {
-    playSound('invalid'); 
+    playSound('invalid'); // Play error sound
     return false;
   }
 
@@ -485,7 +543,7 @@ function stepSquare(s){
   let nx=s.x+dx, ny=s.y+dy;
 
   if(nx<0||ny<0||nx>=gridSize||ny>=gridSize) {
-    playSound('invalid'); 
+    playSound('invalid'); // Play error sound
     return false;
   }
 
@@ -498,7 +556,7 @@ function stepSquare(s){
     let currentY = s.y;
     while (current) {
         if (current.fixed) {
-          playSound('invalid'); 
+          playSound('invalid'); // Play error sound
           return false; 
         }
         chain.push(current);
@@ -508,7 +566,7 @@ function stepSquare(s){
     }
     
     if (currentX < 0 || currentY < 0 || currentX >= gridSize || currentY >= gridSize) {
-      playSound('invalid'); 
+      playSound('invalid'); // Play error sound
       return false;
     }
 
@@ -522,9 +580,9 @@ function stepSquare(s){
         if(b){
             chainSquare.fixed = true;
             score++;
-            playSound('fix'); 
+            playSound('fix'); // Play fix sound
         } else {
-            playSound('push'); 
+            playSound('push'); // Play push sound
         }
     }
     return true;
@@ -535,7 +593,7 @@ function stepSquare(s){
     if(b){ 
       s.fixed=true; 
       score++; 
-      playSound('fix'); 
+      playSound('fix'); // Play fix sound
     }
     return true;
   }
@@ -555,7 +613,7 @@ function jumpOver(s) {
     let ny = s.y + 2 * dy;
 
     if(nx<0||ny<0||nx>=gridSize||ny>=gridSize) {
-      playSound('invalid'); 
+      playSound('invalid'); // Play error sound
       return;
     }
 
@@ -569,18 +627,18 @@ function jumpOver(s) {
         steps++;
         score--;
         jumpBonusUses--;
-        playSound('jump'); 
+        playSound('jump'); // Play jump sound
 
         let b = balls.find(o => o.x === s.x && o.y === s.y && o.color === s.color);
         if(b){
             s.fixed = true;
             score++;
-            playSound('fix'); 
+            playSound('fix'); // Play fix sound
         }
         draw();
         checkWin();
     } else {
-      playSound('invalid'); 
+      playSound('invalid'); // Play error sound
     }
 }
 
@@ -596,7 +654,7 @@ function changeDirection(s) {
     
     // Mark the square whose direction was changed
     changedDirectionSquare = s;
-    playSound('turn'); 
+    playSound('turn'); // Play turn sound
 
     draw();
 }
@@ -714,6 +772,7 @@ document.getElementById('easyBtn').onclick = () => {
 document.getElementById('superHardBtn').onclick = () => {
     initAudioContext();
     currentColors = COLORS_SUPER_HARD;
+    // Changed: Increase bonuses for hard mode to 3
     jumpBonusUses = 3;
     changeDirBonusUses = 3;
     document.getElementById('welcome').style.display = 'none';
@@ -730,7 +789,7 @@ document.getElementById('jumpBtn').onclick = () => {
     if (selectedSquare && jumpBonusUses > 0) {
         jumpOver(selectedSquare);
     } else {
-      playSound('invalid'); 
+      playSound('invalid'); // Play error sound if bonus is not available
     }
 };
 
@@ -739,7 +798,7 @@ document.getElementById('changeDirBtn').onclick = () => {
     if (selectedSquare && changeDirBonusUses > 0) {
         changeDirection(selectedSquare);
     } else {
-      playSound('invalid'); 
+      playSound('invalid'); // Play error sound if bonus is not available
     }
 };
 
@@ -757,14 +816,16 @@ document.getElementById('cancelExitBtn').onclick = () => {
     document.getElementById('exit-modal').style.display = 'none';
 };
 
-// Initial setup to set the correct theme button emoji
-document.getElementById('themeToggleBtn').innerText = '☀️';
-
-// Initial background draw
+// Initial setup to set the correct theme button emoji and canvas size
 window.onload = () => {
+    document.getElementById('themeToggleBtn').innerText = '☀️';
+    setCanvasSize();
     drawBackground();
 };
-window.onresize = drawBackground;
+window.onresize = () => {
+    setCanvasSize();
+    drawBackground();
+};
 
 </script>
 </body>
